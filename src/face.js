@@ -121,8 +121,13 @@ export function faceEvent(type, data = {}) {
   }
 }
 
-// Si se apaga la pantalla o la app pasa al fondo, la conversación termina y se suelta el micrófono
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && root) closeFace(); });
+// Si se apaga la pantalla o la app pasa al fondo DE VERDAD (más de 3 s), la conversación termina y se suelta el micrófono.
+// Al prender la pantalla sobre el bloqueo, Android esconde la app un instante: eso no debe cerrar la carita.
+let hideTimer = 0;
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(hideTimer);
+  if (document.visibilityState === 'hidden' && root) hideTimer = setTimeout(() => { if (document.visibilityState === 'hidden' && root) closeFace(); }, 3000);
+});
 
 // ---------- Animación ----------
 let mouth = 0, ring = 0, look = 0;

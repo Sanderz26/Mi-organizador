@@ -81,6 +81,7 @@ public class AriesService extends Service implements RecognitionListener {
         @Override public void run() { evaluate(); main.postDelayed(this, 60000); }
     };
     private final Runnable releaseHold = () -> { appHolds = false; evaluate(); };
+    private final Runnable releaseLeft = () -> { if (!MainActivity.visible) { appHolds = false; evaluate(); } };
     private final BroadcastReceiver power = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { evaluate(); }
     };
@@ -142,12 +143,17 @@ public class AriesService extends Service implements RecognitionListener {
         });
     }
 
-    /** La app salió de la pantalla: en unos segundos Aries vuelve a escuchar (la app ya soltó el micrófono) */
+    /** La app salió de la pantalla: si no vuelve en unos segundos, Aries vuelve a escuchar */
     public static void appLeft() {
         AriesService s = instance;
         if (s == null) return;
-        s.main.removeCallbacks(s.releaseHold);
-        s.main.postDelayed(s.releaseHold, 2500);
+        s.main.removeCallbacks(s.releaseLeft);
+        s.main.postDelayed(s.releaseLeft, 4000);
+    }
+    /** La app volvió a verse (por ejemplo, tras el parpadeo al prender la pantalla sobre el bloqueo) */
+    public static void appBack() {
+        AriesService s = instance;
+        if (s != null) s.main.removeCallbacks(s.releaseLeft);
     }
 
     // ---------- Modelo ----------

@@ -27,8 +27,22 @@ onFaceRequest((kind) => {
   if (kind === 'listen' && currentEl?.isConnected && faceOpen()) { if (micState === 'idle' && !busy) toggleMic(currentEl, { fromWake: true }); }
   else if (kind === 'close') { if (micState !== 'idle') mic?.stop(); stopSpeaking(); }
 });
-// Si la app pasa al fondo o se apaga la pantalla, nunca queda el micrófono abierto
-document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (micState !== 'idle') mic?.stop(); stopSpeaking(); } });
+// Si la app pasa al fondo o se apaga la pantalla (más de 2,5 s, no un parpadeo), nunca queda el micrófono abierto
+let hiddenSince = 0, hideStop = 0;
+document.addEventListener('visibilitychange', () => {
+  clearTimeout(hideStop);
+  if (document.visibilityState === 'hidden') {
+    hiddenSince = Date.now();
+    hideStop = setTimeout(() => { if (document.visibilityState === 'hidden') { if (micState !== 'idle') mic?.stop(); stopSpeaking(); } }, 2500);
+  } else hiddenSince = 0;
+});
+const reallyHidden = () => document.visibilityState === 'hidden' && hiddenSince && Date.now() - hiddenSince > 2500;
+/** Espera a que la app se vea (al despertar la tableta tarda un momento). false si no aparece. */
+async function waitVisible(ms = 5000) {
+  const t0 = Date.now();
+  while (document.visibilityState === 'hidden' && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 150));
+  return document.visibilityState !== 'hidden';
+}
 const VOICE_LS = 'organizador-ia-voz';
 const VOICE_MODES = { dictado: 'Voz al dictar', siempre: 'Voz siempre', apagada: 'Sin voz' };
 let voiceMode = (() => { try { return localStorage.getItem(VOICE_LS) || 'dictado'; } catch { return 'dictado'; } })();
@@ -295,8 +309,10 @@ async function toggleMic(el, { fromWake = false } = {}) {
   const sess = faceSession();
   const faceGone = () => fromFace && (!faceOpen() || faceSession() !== sess);
   await pauseWake();
-  // La carita se cerró mientras se preparaba el micrófono: no se empieza a escuchar
-  if (faceGone() || document.visibilityState === 'hidden') { resumeWake(); return; }
+  // Al despertar la tableta la app tarda un momento en verse: se espera antes de escuchar
+  const visibleNow = await waitVisible();
+  // La carita se cerró mientras se preparaba el micrófono, o la pantalla sigue apagada: no se empieza a escuchar
+  if (faceGone() || !visibleNow) { resumeWake(); return; }
   try {
     if (!fromWake) sound('start'); // con "Aries" ya sonó al activarse
     mic = await listen({ onLevel: (l) => { if (micState === 'listening') { setMic(el, 'listening', l); faceEvent('listening', { level: l }); } }, onStopped: () => { setMic(el, 'transcribing'); faceEvent('transcribing'); } });
@@ -307,7 +323,7 @@ async function toggleMic(el, { fromWake = false } = {}) {
     // Vigilante: se cierra el micrófono si cambia la pantalla, se cerró la carita o pasa el tiempo máximo
     const started = Date.now();
     const maxMs = fromFace ? 25000 : 65000;
-    const watch = setInterval(() => { if (micState === 'listening' && (!el.isConnected || faceGone() || document.visibilityState === 'hidden' || Date.now() - started > maxMs)) mic?.stop(); }, 500);
+    const watch = setInterval(() => { if (micState === 'listening' && (!el.isConnected || faceGone() || reallyHidden() || Date.now() - started > maxMs)) mic?.stop(); }, 500);
     const doneP = mic.done;
     // cuando termina de grabar (silencio o toque), pasa a transcribir
     let hung = false;
