@@ -10,7 +10,7 @@ import { canDictate, listen, speak, stopSpeaking } from '../voice.js';
 import { pauseWake, resumeWake } from '../wakeword.js';
 import { printerIp, pollPrinter } from '../printer.js';
 import { sound } from '../sound.js';
-import { faceEvent, onFaceRequest, faceOpen } from '../face.js';
+import { faceEvent, onFaceRequest, faceOpen, faceSession } from '../face.js';
 import { addMemory, findMemory } from '../memory.js';
 
 const LS = 'organizador-ia-chat';
@@ -24,9 +24,11 @@ export function requestVoiceStart() { voicePending = true; }
 let currentEl = null;
 // La carita pide escuchar (botón de micrófono o seguir la conversación) o se cierra
 onFaceRequest((kind) => {
-  if (kind === 'listen' && currentEl?.isConnected) { if (micState === 'idle' && !busy) toggleMic(currentEl, { fromWake: true }); }
-  else if (kind === 'close') { if (micState === 'listening') mic?.stop(); stopSpeaking(); }
+  if (kind === 'listen' && currentEl?.isConnected && faceOpen()) { if (micState === 'idle' && !busy) toggleMic(currentEl, { fromWake: true }); }
+  else if (kind === 'close') { if (micState !== 'idle') mic?.stop(); stopSpeaking(); }
 });
+// Si la app pasa al fondo o se apaga la pantalla, nunca queda el micrófono abierto
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') { if (micState !== 'idle') mic?.stop(); stopSpeaking(); } });
 const VOICE_LS = 'organizador-ia-voz';
 const VOICE_MODES = { dictado: 'Voz al dictar', siempre: 'Voz siempre', apagada: 'Sin voz' };
 let voiceMode = (() => { try { return localStorage.getItem(VOICE_LS) || 'dictado'; } catch { return 'dictado'; } })();
@@ -289,17 +291,29 @@ async function toggleMic(el, { fromWake = false } = {}) {
   const ok = await canDictate();
   if (!ok.ok) { toast(ok.why, { ms: 5000 }); sound('error'); resumeWake(); return; }
   stopSpeaking();
+  const fromFace = faceOpen();
+  const sess = faceSession();
+  const faceGone = () => fromFace && (!faceOpen() || faceSession() !== sess);
   await pauseWake();
+  // La carita se cerró mientras se preparaba el micrófono: no se empieza a escuchar
+  if (faceGone() || document.visibilityState === 'hidden') { resumeWake(); return; }
   try {
     if (!fromWake) sound('start'); // con "Aries" ya sonó al activarse
     mic = await listen({ onLevel: (l) => { if (micState === 'listening') { setMic(el, 'listening', l); faceEvent('listening', { level: l }); } }, onStopped: () => { setMic(el, 'transcribing'); faceEvent('transcribing'); } });
+    if (faceGone()) { mic.stop(); }
     setMic(el, 'listening');
     faceEvent('listening', { level: 0 });
     mic.done.then(() => {}, () => {});
-    const watch = setInterval(() => { if (micState === 'listening' && !el.isConnected) mic?.stop(); }, 1000);
+    // Vigilante: se cierra el micrófono si cambia la pantalla, se cerró la carita o pasa el tiempo máximo
+    const started = Date.now();
+    const maxMs = fromFace ? 25000 : 65000;
+    const watch = setInterval(() => { if (micState === 'listening' && (!el.isConnected || faceGone() || document.visibilityState === 'hidden' || Date.now() - started > maxMs)) mic?.stop(); }, 500);
     const doneP = mic.done;
     // cuando termina de grabar (silencio o toque), pasa a transcribir
-    const text = await Promise.race([doneP, new Promise((r) => setTimeout(r, 70000))]).finally(() => clearInterval(watch));
+    let hung = false;
+    const text = await Promise.race([doneP, new Promise((r) => setTimeout(() => { hung = true; r(''); }, maxMs + 8000))]).finally(() => clearInterval(watch));
+    if (hung) mic?.stop(); // el reconocedor no respondió: se apaga a la fuerza
+    if (faceGone()) { setMic(el, 'idle'); mic = null; resumeWake(); return; }
     setMic(el, 'idle');
     mic = null;
     if (!text) { if (faceOpen()) faceEvent('nothing'); else toast('No te escuché. Intenta de nuevo.'); resumeWake(); return; }

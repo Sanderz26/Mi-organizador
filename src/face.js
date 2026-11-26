@@ -6,7 +6,9 @@ import { esc } from './util.js';
 const IDLE_CLOSE = 30000; // se cierra sola tras 30 s sin actividad
 let root = null, raf = 0, idleTimer = 0;
 let st = 'sleep', micLevel = 0, opts = {};
-let blinkAt = 0, followUps = 0;
+let blinkAt = 0, followUps = 0, listenTimer = 0;
+let session = 0; // cambia al cerrar: invalida escuchas que iban a empezar
+export const faceSession = () => session;
 const requestors = new Set();
 /** El asistente se registra aquí para que la carita le pida escuchar */
 export const onFaceRequest = (fn) => requestors.add(fn);
@@ -76,8 +78,10 @@ export function faceUnlocked() { opts.locked = false; setLocked(); }
 
 export function closeFace() {
   if (!root) return;
+  session++;
   cancelAnimationFrame(raf);
   clearTimeout(idleTimer);
+  clearTimeout(listenTimer);
   root.classList.add('closing');
   const r = root;
   root = null;
@@ -108,7 +112,7 @@ export function faceEvent(type, data = {}) {
     case 'speaking': reply.innerHTML = esc(data.text || ''); setState('speaking'); break;
     case 'spoke':
       // Sigue la conversación: escucha una vez más (para "confirmo", "sí", etc.)
-      if (followUps < 1 || data.pending) { followUps++; setState('listening'); setTimeout(() => request('listen'), 350); }
+      if (followUps < 2 && (followUps < 1 || data.pending)) { followUps++; setState('listening'); clearTimeout(listenTimer); listenTimer = setTimeout(() => { if (root) request('listen'); }, 350); }
       else setState('idle');
       break;
     case 'idle': if (data.text) reply.innerHTML = esc(data.text); setState('idle'); break;
@@ -116,6 +120,9 @@ export function faceEvent(type, data = {}) {
     case 'error': setState('error', data.text); break;
   }
 }
+
+// Si se apaga la pantalla o la app pasa al fondo, la conversación termina y se suelta el micrófono
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden' && root) closeFace(); });
 
 // ---------- Animación ----------
 let mouth = 0, ring = 0, look = 0;

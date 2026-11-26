@@ -137,9 +137,17 @@ public class AriesService extends Service implements RecognitionListener {
         s.main.post(() -> {
             s.appHolds = on;
             s.main.removeCallbacks(s.releaseHold);
-            if (on) s.main.postDelayed(s.releaseHold, 120000); // por si la app no lo devuelve
+            if (on) s.main.postDelayed(s.releaseHold, 60000); // por si la app no lo devuelve
             s.evaluate();
         });
+    }
+
+    /** La app salió de la pantalla: en unos segundos Aries vuelve a escuchar (la app ya soltó el micrófono) */
+    public static void appLeft() {
+        AriesService s = instance;
+        if (s == null) return;
+        s.main.removeCallbacks(s.releaseHold);
+        s.main.postDelayed(s.releaseHold, 2500);
     }
 
     // ---------- Modelo ----------

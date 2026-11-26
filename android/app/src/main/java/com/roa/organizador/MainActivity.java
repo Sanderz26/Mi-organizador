@@ -29,6 +29,7 @@ public class MainActivity extends BridgeActivity {
 
     @Override public void onResume() { super.onResume(); visible = true; }
     @Override public void onPause() { visible = false; super.onPause(); }
+    @Override public void onStop() { super.onStop(); AriesService.appLeft(); }
 
     private void handleAries(Intent i) {
         if (i == null || !i.getBooleanExtra("aries", false)) return;
