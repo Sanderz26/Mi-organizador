@@ -1,7 +1,7 @@
 // Componentes compartidos entre vistas
 import { state, commit, upsert } from './store.js';
 import { icon } from './icons.js';
-import { levelInfo, xpOf, streakFor, areaList, award } from './xp.js';
+import { levelInfo, xpOf, streakFor, areaList, award, areaName } from './xp.js';
 import { esc, formModal, uid, toast, todayKey, confirmModal } from './util.js';
 import { saveAttachment, attachmentUrl, openAttachment, deleteAttachment } from './platform.js';
 import { sound } from './sound.js';
@@ -20,39 +20,44 @@ export function levelCard(area) {
 
 export const levelGrid = (areas = areaList()) => `<div class="grid g-auto">${areas.map(levelCard).join('')}</div>`;
 
-/** El usuario decide cuándo falló: resta XP y rompe la racha del día */
-export async function failDialog(preset) {
-  const areas = areaList();
+const areaOptions = () => areaList().map((a) => ({ v: a.key, l: a.name, g: a.kind === 'subject' ? 'Materias' : 'Hábitos' }));
+
+/**
+ * El usuario decide cuándo falló: resta XP y rompe la racha.
+ * Con un área dada (desde una materia, Gimnasio o Dieta) no se muestra selector.
+ */
+export async function failDialog(area) {
+  const name = area ? areaName(area) : '';
   const v = await formModal({
-    title: 'Registrar fallo',
+    title: area ? `Registrar fallo en ${name}` : 'Registrar fallo',
     submitLabel: 'Restar XP',
     fields: [
-      { name: 'area', label: 'Área', type: 'select', value: preset || areas[0]?.key, options: areas.map((a) => ({ v: a.key, l: a.name })) },
+      ...(area ? [] : [{ name: 'area', label: 'Área', type: 'select', value: areaList()[0]?.key, options: areaOptions(), full: true }]),
       { name: 'amount', label: 'XP a restar', type: 'number', value: 20, min: 1, required: true },
       { name: 'date', label: 'Fecha', type: 'date', value: todayKey() },
-      { name: 'reason', label: 'Motivo', type: 'text', placeholder: 'No fui al gimnasio, me pasé de calorías…', full: true },
+      { name: 'reason', label: 'Motivo', type: 'text', placeholder: area === 'gym' ? 'No fui a entrenar' : area === 'diet' ? 'Me pasé de calorías' : area ? 'No estudié lo que tenía planeado' : 'Qué pasó', full: true },
     ],
-    extraHtml: '<p class="small muted">Registrar un fallo también rompe la racha de esa área en esa fecha.</p>',
+    extraHtml: '<p class="small muted">Registrar un fallo también rompe la racha en esa fecha.</p>',
   });
   if (!v || !v.amount) return;
-  award(v.area, -Math.abs(v.amount), v.reason || 'Fallo registrado', null, { date: v.date || todayKey(), kind: 'fail' });
+  award(area || v.area, -Math.abs(v.amount), v.reason || 'Fallo registrado', null, { date: v.date || todayKey(), kind: 'fail' });
   commit();
 }
 
 /** Bonificación manual (por ejemplo, ganaste un parcial) */
-export async function bonusDialog(preset) {
-  const areas = areaList();
+export async function bonusDialog(area) {
+  const name = area ? areaName(area) : '';
   const v = await formModal({
-    title: 'Sumar XP manualmente',
+    title: area ? `Sumar XP a ${name}` : 'Sumar XP manualmente',
     submitLabel: 'Sumar XP',
     fields: [
-      { name: 'area', label: 'Área', type: 'select', value: preset || areas[0]?.key, options: areas.map((a) => ({ v: a.key, l: a.name })) },
+      ...(area ? [] : [{ name: 'area', label: 'Área', type: 'select', value: areaList()[0]?.key, options: areaOptions(), full: true }]),
       { name: 'amount', label: 'XP a sumar', type: 'number', value: 25, min: 1, required: true },
-      { name: 'reason', label: 'Motivo', type: 'text', placeholder: 'Saqué 4,8 en el parcial', full: true },
+      { name: 'reason', label: 'Motivo', type: 'text', placeholder: area === 'gym' ? 'Entreno extra de cardio' : area === 'diet' ? 'Semana perfecta' : 'Saqué 4,8 en el parcial', full: true },
     ],
   });
   if (!v || !v.amount) return;
-  award(v.area, Math.abs(v.amount), v.reason || 'Bonificación', null, { kind: 'bonus' });
+  award(area || v.area, Math.abs(v.amount), v.reason || 'Bonificación', null, { kind: 'bonus' });
   commit();
 }
 

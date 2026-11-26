@@ -1,10 +1,11 @@
 // Gimnasio: sesiones, ejercicios, récords y peso corporal
 import { state, commit, upsert, remove, find } from '../store.js';
 import { icon } from '../icons.js';
-import { esc, todayKey, nowHM, fmtDate, fmtDateLong, openModal, formModal, confirmModal, emptyState, weekKey, parseKey, addDays, fmtNum } from '../util.js';
+import { esc, todayKey, nowHM, fmtDate, fmtDateY, fmtDateLong, openModal, formModal, confirmModal, emptyState, weekKey, parseKey, addDays, fmtNum } from '../util.js';
 import { levelCard, failDialog, bonusDialog } from '../components.js';
 import { award, removeRef, RULES, gymWeeks } from '../xp.js';
 import { chart, destroyCharts } from '../charts.js';
+import { goalProgress, bmiInfo } from '../health.js';
 import { sound } from '../sound.js';
 
 const MUSCLES = ['Pecho', 'Espalda', 'Pierna', 'Hombro', 'Brazos', 'Glúteo', 'Core', 'Cardio', 'Cuerpo completo', 'Pecho y tríceps', 'Espalda y bíceps', 'Pierna y glúteo'];
@@ -120,7 +121,8 @@ export function render(el) {
   const best = Object.values(bestLifts()).sort((a, b) => b.weight - a.weight).slice(0, 8);
   const area = { key: 'gym', name: 'Gimnasio', color: 'var(--c-gym)', icon: 'barbell' };
   const s = state.settings;
-  const bmi = lastW && s.heightCm ? lastW.kg / (s.heightCm / 100) ** 2 : null;
+  const bmi = bmiInfo();
+  const gp = goalProgress();
 
   // sesiones por semana (últimas 12)
   const weeksL = [], weeksV = [];
@@ -136,9 +138,13 @@ export function render(el) {
         <div class="bar" style="--c:var(--c-gym)"><i style="width:${Math.min(100, Math.round((wk.thisWeek / wk.goal) * 100))}%"></i></div>
         <div class="kv"><span class="muted">Racha</span><span>${wk.streak} ${wk.streak === 1 ? 'semana' : 'semanas'}</span></div>
         <div class="kv"><span class="muted">Peso actual</span><span>${lastW ? fmtNum(lastW.kg) + ' kg' : '—'}</span></div>
-        <div class="kv"><span class="muted">Cambio total</span><span class="${lastW && firstW && lastW.kg < firstW.kg ? 'down' : ''}">${lastW && firstW && weights.length > 1 ? (lastW.kg - firstW.kg > 0 ? '+' : '') + fmtNum(lastW.kg - firstW.kg) + ' kg' : '—'}</span></div>
-        ${bmi ? `<div class="kv"><span class="muted">IMC</span><span>${fmtNum(bmi)}</span></div>` : ''}
-        ${s.targetWeight ? `<div class="kv"><span class="muted">Meta</span><span>${fmtNum(s.targetWeight)} kg</span></div>` : ''}
+        <div class="kv"><span class="muted">Cambio total</span><span class="${lastW && firstW && weights.length > 1 ? (((s.goal === 'bajar' && lastW.kg < firstW.kg) || (s.goal === 'subir' && lastW.kg > firstW.kg)) ? 'up' : ((s.goal === 'bajar' && lastW.kg > firstW.kg) || (s.goal === 'subir' && lastW.kg < firstW.kg)) ? 'down' : '') : ''}">${lastW && firstW && weights.length > 1 ? (lastW.kg - firstW.kg > 0 ? '+' : '') + fmtNum(lastW.kg - firstW.kg) + ' kg' : '—'}</span></div>
+        ${bmi ? `<div class="kv"><span class="muted">IMC</span><span>${fmtNum(bmi.value)} · ${esc(bmi.cat)}</span></div>` : ''}
+        ${gp ? `<div class="kv"><span class="muted">Peso meta</span><span>${fmtNum(gp.target)} kg</span></div>
+          <div class="bar" style="--c:var(--ok)"><i style="width:${gp.pct}%"></i></div>
+          <div class="kv"><span class="muted">${gp.reached ? 'Meta alcanzada' : gp.remaining > 0 ? 'Te faltan por bajar' : 'Te faltan por subir'}</span><span>${gp.reached ? '✓' : fmtNum(Math.abs(gp.remaining)) + ' kg · ' + gp.pct + '%'}</span></div>
+          ${gp.rate !== null && gp.rate !== undefined ? `<div class="kv"><span class="muted">Ritmo (6 semanas)</span><span>${gp.rate > 0 ? '+' : ''}${fmtNum(gp.rate)} kg/sem</span></div>` : ''}
+          ${!gp.reached ? `<p class="tiny ${gp.eta ? 'muted' : 'faint'}" style="margin-top:6px">${gp.eta ? `Al ritmo actual llegarías hacia el ${esc(fmtDateY(gp.eta))}.` : 'Registra tu peso cada semana para estimar cuándo llegas a tu meta.'}</p>` : ''}` : `<p class="tiny faint" style="margin-top:6px">Pon tu peso meta en Ajustes para ver tu avance.</p>`}
       </div>
       <div class="split"><button class="btn sm" data-bonus>${icon('plus', 14)} XP</button><button class="btn sm danger" data-fail>${icon('minus', 14)} Registrar fallo</button></div>
     </div>
@@ -156,7 +162,7 @@ export function render(el) {
     </div>
   </div>`;
 
-  if (weights.length > 1) chart(el.querySelector('[data-wchart]'), { kind: 'line', labels: weights.map((w) => fmtDate(w.date)), series: [{ label: 'Peso', data: weights.map((w) => w.kg), color: 'var(--c-gym)', fill: true }], yFmt: (v) => fmtNum(v) + ' kg' });
+  if (weights.length > 1) chart(el.querySelector('[data-wchart]'), { kind: 'line', labels: weights.map((w) => fmtDate(w.date)), series: [{ label: 'Peso', data: weights.map((w) => w.kg), color: 'var(--c-gym)', fill: true }, ...(s.targetWeight ? [{ label: 'Meta', data: weights.map(() => Number(s.targetWeight)), color: 'var(--ok)', dashed: true }] : [])], yFmt: (v) => fmtNum(v) + ' kg', legend: false });
   chart(el.querySelector('[data-schart]'), { kind: 'bar', labels: weeksL, series: [{ label: 'Entrenos', data: weeksV, color: 'var(--c-gym)' }, { label: 'Meta', data: weeksV.map(() => wk.goal), color: 'var(--ink-3)', type: 'line', dashed: true }], min: 0, pick: 'gym-semanas' });
 
   el.onclick = (e) => {

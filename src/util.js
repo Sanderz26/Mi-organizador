@@ -77,7 +77,11 @@ function fieldHtml(f) {
   if (f.type === 'section') return `<div class="full" style="margin-top:4px"><h3>${esc(f.label)}</h3>${f.hint ? `<div class="hint small muted">${esc(f.hint)}</div>` : ''}</div>`;
   let input;
   if (f.type === 'select') {
-    input = `<select id="${id}" name="${f.name}" ${req}>${(f.options || []).map((o) => { const ov = typeof o === 'object' ? o.v : o; const ol = typeof o === 'object' ? o.l : o; return `<option value="${esc(ov)}" ${String(ov) === String(v) ? 'selected' : ''}>${esc(ol)}</option>`; }).join('')}</select>`;
+    const opt = (o) => { const ov = typeof o === 'object' ? o.v : o; const ol = typeof o === 'object' ? o.l : o; return `<option value="${esc(ov)}" ${String(ov) === String(v) ? 'selected' : ''}>${esc(ol)}</option>`; };
+    const opts = f.options || [];
+    const groups = [...new Set(opts.map((o) => o?.g).filter(Boolean))];
+    const inner = groups.length ? groups.map((g) => `<optgroup label="${esc(g)}">${opts.filter((o) => o.g === g).map(opt).join('')}</optgroup>`).join('') : opts.map(opt).join('');
+    input = `<select id="${id}" name="${f.name}" ${req}>${inner}</select>`;
   } else if (f.type === 'textarea') {
     input = `<textarea id="${id}" name="${f.name}" placeholder="${esc(f.placeholder || '')}" ${req}>${esc(v)}</textarea>`;
   } else {
@@ -146,4 +150,6 @@ export function confirmModal(text, okLabel = 'Eliminar') {
   });
 }
 
+export const norm = (s) => String(s ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+export const matches = (q, ...fields) => { const w = norm(q).split(/\s+/).filter(Boolean); const hay = norm(fields.join(' ')); return w.every((x) => hay.includes(x)); };
 export const emptyState = (ic, text, btn = '') => `<div class="empty">${icon(ic, 30)}<div>${esc(text)}</div>${btn}</div>`;

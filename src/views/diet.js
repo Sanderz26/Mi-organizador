@@ -61,8 +61,11 @@ export function evaluateDay(key) {
   const total = sum(state.meals.filter((m) => m.date === key), (m) => m.kcal);
   const goal = Number(s.calorieGoal) || 0;
   const margin = goal * (Number(s.calorieMargin) || 0) / 100;
-  const ok = s.dietMode === 'max' ? total > 0 && total <= goal : total >= goal - margin && total <= goal + margin;
-  return { total, goal, margin, ok };
+  const kcalOk = s.dietMode === 'max' ? total > 0 && total <= goal : total >= goal - margin && total <= goal + margin;
+  const protein = sum(state.meals.filter((m) => m.date === key), (m) => m.protein);
+  const pGoal = Number(s.proteinGoal) || 0;
+  const protOk = !s.proteinCounts || !pGoal || protein >= pGoal;
+  return { total, goal, margin, ok: kcalOk && protOk, kcalOk, protein, pGoal, protOk };
 }
 
 export function setDay(key, status) {
@@ -88,7 +91,8 @@ function closeDayDialog(key) {
   const ov = openModal({
     title: 'Cerrar el día',
     body: `<p>Consumiste <b>${ev.total.toLocaleString('es-CO')} kcal</b>. Tu objetivo es ${range}.</p>
-      <p class="${ev.ok ? 'up' : 'down'}" style="font-weight:600">${ev.ok ? 'Según tus calorías, cumpliste.' : 'Según tus calorías, no cumpliste.'}</p>
+      ${s.proteinCounts && ev.pGoal ? `<p>Proteína: <b>${ev.protein} g</b> de ${ev.pGoal} g.</p>` : ''}
+      <p class="${ev.ok ? 'up' : 'down'}" style="font-weight:600">${ev.ok ? 'Según tus metas, cumpliste.' : !ev.kcalOk ? 'Según tus calorías, no cumpliste.' : 'Te faltó proteína para cumplir.'}</p>
       <p class="small muted">Tú decides: puedes marcarlo distinto si lo consideras.</p>`,
     foot: `<button class="btn" data-fail>${icon('x', 16)} No cumplí</button><button class="btn primary" data-ok>${icon('check', 16)} Cumplí</button>`,
   });
@@ -142,7 +146,8 @@ export function render(el) {
           <div class="grow" style="min-width:180px">
             <div class="kv"><span class="muted">Meta</span><span>${Number(ev.goal).toLocaleString('es-CO')} kcal</span></div>
             <div class="kv"><span class="muted">${rest >= 0 ? 'Te quedan' : 'Te pasaste'}</span><span class="${rest < -ev.margin ? 'down' : ''}">${Math.abs(rest).toLocaleString('es-CO')} kcal</span></div>
-            <div class="kv"><span class="muted">Proteína</span><span>${prot} g${s.proteinGoal ? ' / ' + s.proteinGoal + ' g' : ''}</span></div>
+            <div class="kv"><span class="muted">Proteína${s.proteinCounts && s.proteinGoal ? ' (cuenta para cumplir)' : ''}</span><span>${prot} g${s.proteinGoal ? ' / ' + s.proteinGoal + ' g' : ''}</span></div>
+            ${s.proteinGoal ? `<div class="bar" style="--c:var(--c-study)"><i style="width:${Math.min(100, Math.round((prot / s.proteinGoal) * 100))}%"></i></div>` : '<p class="tiny faint">Pon una meta de proteína en Ajustes para ver tu avance.</p>'}
           </div>
         </div>
         <div style="margin-top:14px">${groups.length ? groups.map(([t, arr]) => `<div style="margin-top:8px"><div class="split"><h3 class="grow">${esc(t)}</h3><span class="num small muted">${sum(arr, (m) => m.kcal).toLocaleString('es-CO')} kcal</span></div><div class="list">${arr.map((m) => `<div class="row click" data-meal="${esc(m.id)}"><div class="grow"><div class="title">${esc(m.desc)}</div>${m.time || m.protein ? `<div class="meta">${m.time ? `<span>${esc(m.time)}</span>` : ''}${m.protein ? `<span>${m.protein} g proteína</span>` : ''}</div>` : ''}</div><span class="num">${Number(m.kcal).toLocaleString('es-CO')} kcal</span></div>`).join('')}</div></div>`).join('') : emptyState('salad', 'No has registrado comidas este día.', `<button class="btn primary" data-add>${icon('plus', 16)} Registrar comida</button>`)}</div>

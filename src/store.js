@@ -26,6 +26,11 @@ export const DEFAULT_SETTINGS = {
   currentSemester: '',
   heightCm: 0,
   targetWeight: 0,
+  sex: '',
+  age: 0,
+  activity: 'ligero',
+  goal: 'mantener',
+  proteinCounts: false,
 };
 
 const DEFAULTS = () => ({

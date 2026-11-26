@@ -9,6 +9,7 @@ import { syncHolidaysOnline } from './holidays.js';
 import { onAppPause, onBackButton, exitApp } from './platform.js';
 import { startUpdates } from './updates.js';
 import { startSync } from './sync.js';
+import { openSearch } from './search.js';
 
 import * as home from './views/home.js';
 import * as calendar from './views/calendar.js';
@@ -53,6 +54,7 @@ function shell() {
   app.innerHTML = `<div class="app">
     <aside class="sidebar" aria-label="Menú principal">
       <div class="brand"><span class="brand-mark">${icon('target', 18)}</span>Organizador</div>
+      <button class="searchbtn" data-search>${icon('search', 16)}<span>Buscar</span><kbd>Ctrl K</kbd></button>
       ${SIDE.map((r) => navItem(r)).join('')}
       <div class="sidebar-foot"><div id="syncchip"></div><div class="nav-sep"></div>${navItem('ajustes')}</div>
     </aside>
@@ -63,11 +65,13 @@ function shell() {
     </main>
     <nav class="bottomnav" aria-label="Menú">
       ${BOTTOM.map((r) => navItem(r)).join('')}
+      <button class="nav-item" data-search>${icon('search', 20)}<span>Buscar</span></button>
       <button class="nav-item" data-more>${icon('menu-2', 20)}<span>Más</span></button>
     </nav>
   </div>`;
   app.querySelectorAll('[data-route]').forEach((el) => el.addEventListener('click', () => go(el.dataset.route)));
   app.querySelector('[data-more]').addEventListener('click', openMore);
+  app.querySelectorAll('[data-search]').forEach((b) => b.addEventListener('click', openSearch));
 }
 const navItem = (r) => `<button class="nav-item" data-route="${r}">${icon(ROUTES[r].icon, 19)}<span>${ROUTES[r].label}</span></button>`;
 

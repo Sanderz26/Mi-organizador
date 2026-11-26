@@ -79,6 +79,11 @@ p { margin: 0; }
 .brand { display: flex; align-items: center; gap: 10px; padding: 2px 10px 18px; font-weight: 600; font-size: 16px; }
 .brand-mark { width: 30px; height: 30px; border-radius: 9px; background: var(--accent); color: #fff; display: grid; place-items: center; }
 :root[data-theme="dark"] .brand-mark { color: #10262f; }
+.searchbtn { display: flex; align-items: center; gap: 9px; margin: 0 4px 12px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-2); color: var(--ink-3); cursor: pointer; font-size: 14px; text-align: left; }
+.searchbtn span { flex: 1; }
+.searchbtn kbd { font: 11px var(--font); border: 1px solid var(--line-2); border-radius: 5px; padding: 1px 5px; color: var(--ink-3); background: var(--surface); }
+.searchbtn:hover { border-color: var(--line-2); color: var(--ink-2); }
+.row.sel { background: var(--accent-soft); }
 .nav-item { display: flex; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 8px; color: var(--ink-2); text-decoration: none; cursor: pointer; border: 0; background: none; width: 100%; text-align: left; font-size: 14.5px; }
 .nav-item:hover { background: var(--surface-2); color: var(--ink); }
 .nav-item.active { background: var(--accent-soft); color: var(--accent-ink); font-weight: 600; }

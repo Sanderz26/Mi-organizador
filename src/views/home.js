@@ -21,6 +21,7 @@ export function render(el) {
   const agenda = agendaFor(today).filter((x) => x.kind !== 'task');
   const pending = state.tasks.filter((t) => !t.done).sort((a, b) => (a.due || '9999').localeCompare(b.due || '9999')).slice(0, 6);
   const kcal = sum(state.meals.filter((m) => m.date === today), (m) => m.kcal);
+  const prot = sum(state.meals.filter((m) => m.date === today), (m) => m.protein);
   const pct = s.calorieGoal ? Math.min(100, Math.round((kcal / s.calorieGoal) * 100)) : 0;
   const studyToday = sum(state.studySessions.filter((x) => x.date === today), (x) => x.minutes);
   const hol = nextHoliday(today);
@@ -48,6 +49,7 @@ export function render(el) {
         <div class="card-head"><h2>${icon('salad', 18)} Calorías</h2><button class="btn sm" data-meal>${icon('plus', 15)} Comida</button></div>
         <div class="split"><div class="grow"><div class="num" style="font-size:26px;font-weight:600">${kcal.toLocaleString('es-CO')}</div><div class="muted small">de ${Number(s.calorieGoal).toLocaleString('es-CO')} kcal</div></div><span class="pill ${state.dietDays[today] === 'ok' ? 'ok' : state.dietDays[today] === 'fail' ? 'bad' : ''}">${state.dietDays[today] === 'ok' ? 'Día cumplido' : state.dietDays[today] === 'fail' ? 'No cumplido' : 'Día abierto'}</span></div>
         <div class="bar" style="--c:var(--c-diet);height:8px"><i style="width:${pct}%"></i></div>
+        ${s.proteinGoal ? `<div class="split small muted" style="margin-top:4px"><span class="grow">Proteína</span><span class="num">${prot} / ${s.proteinGoal} g</span></div><div class="bar" style="--c:var(--c-study)"><i style="width:${Math.min(100, Math.round((prot / s.proteinGoal) * 100))}%"></i></div>` : ''}
       </div>
       <div class="card">
         <div class="card-head"><h2>${icon('stopwatch', 18)} Estudio hoy</h2>${state.activeTimer ? '<span class="pill acc">En curso</span>' : `<button class="btn primary sm" data-study>${icon('player-play', 15)} Iniciar</button>`}</div>

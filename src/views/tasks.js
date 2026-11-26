@@ -1,7 +1,7 @@
 // Tareas y compromisos
 import { state, commit, upsert, remove, find, subjectName } from '../store.js';
 import { icon } from '../icons.js';
-import { esc, todayKey, relDay, formModal, emptyState, addDays, toKey } from '../util.js';
+import { esc, todayKey, relDay, formModal, emptyState, addDays, toKey, matches } from '../util.js';
 import { subjectOptions, REMINDER_OPTIONS, parseReminder } from '../components.js';
 import { award, removeRef, RULES } from '../xp.js';
 import { sound } from '../sound.js';
@@ -10,6 +10,8 @@ export const CATEGORIES = { general: 'General', estudio: 'Estudio', gimnasio: 'G
 const PRIORITY = { alta: { l: 'Alta', c: 'bad' }, media: { l: 'Media', c: 'warn' }, baja: { l: 'Baja', c: '' } };
 let filter = 'pendientes';
 let cat = 'todas';
+let q = '';
+let bound = null;
 
 export async function taskDialog(task = null, preset = {}) {
   const t = task || { category: preset.subjectId ? 'estudio' : 'general', priority: 'media', reminderMins: state.settings.defaultReminderMins, ...preset };
@@ -85,6 +87,7 @@ export function render(el) {
   const today = todayKey();
   let list = state.tasks.slice();
   if (cat !== 'todas') list = list.filter((t) => t.category === cat);
+  if (q) list = list.filter((t) => matches(q, t.title, t.notes, subjectName(t.subjectId), ...(t.subtasks || []).map((x) => x.text)));
   const groups = [];
   if (filter === 'completadas') {
     groups.push(['Completadas', list.filter((t) => t.done).sort((a, b) => (b.doneAt || '').localeCompare(a.doneAt || ''))]);
@@ -105,9 +108,10 @@ export function render(el) {
     <div class="head-actions"><button class="btn primary" data-new>${icon('plus', 16)} Nueva tarea</button></div></div>
   <div class="split">
     <div class="tabs">${[['pendientes', 'Pendientes'], ['hoy', 'Hoy'], ['completadas', 'Completadas']].map(([k, l]) => `<button class="tab ${filter === k ? 'active' : ''}" data-f="${k}">${l} <span class="faint">${counts[k]}</span></button>`).join('')}</div>
+    <input type="search" data-tq placeholder="Buscar tareas" value="${esc(q)}" style="max-width:260px">
     <select data-cat style="width:auto;min-width:160px"><option value="todas">Todas las categorías</option>${Object.entries(CATEGORIES).map(([k, l]) => `<option value="${k}" ${cat === k ? 'selected' : ''}>${l}</option>`).join('')}</select>
   </div>
-  ${groups.filter(([, arr]) => arr.length).map(([name, arr]) => `<div class="card"><div class="card-head"><h2>${esc(name)}</h2><span class="faint small">${arr.length}</span></div><div class="list">${arr.map(taskRow).join('')}</div></div>`).join('') || `<div class="card">${emptyState('circle-check', filter === 'completadas' ? 'Aún no has completado tareas.' : 'No hay tareas aquí.', `<button class="btn primary" data-new>${icon('plus', 16)} Nueva tarea</button>`)}</div>`}`;
+  ${groups.filter(([, arr]) => arr.length).map(([name, arr]) => `<div class="card"><div class="card-head"><h2>${esc(name)}</h2><span class="faint small">${arr.length}</span></div><div class="list">${arr.map(taskRow).join('')}</div></div>`).join('') || `<div class="card">${emptyState('circle-check', filter === 'completadas' ? 'Aún no has completado tareas.' : (q ? 'Ninguna tarea coincide con la búsqueda.' : 'No hay tareas aquí.'), `<button class="btn primary" data-new>${icon('plus', 16)} Nueva tarea</button>`)}</div>`}`;
 
   el.onclick = (e) => {
     const t = e.target.closest('[data-toggle],[data-edit],[data-new],[data-f]');
@@ -118,4 +122,10 @@ export function render(el) {
     else if (t.dataset.f) { filter = t.dataset.f; render(el); }
   };
   el.onchange = (e) => { if (e.target.matches('[data-cat]')) { cat = e.target.value; render(el); } };
+  el.oninput = (e) => {
+    if (!e.target.matches('[data-tq]')) return;
+    clearTimeout(bound);
+    const v = e.target.value;
+    bound = setTimeout(() => { q = v; render(el); const i = el.querySelector('[data-tq]'); i.focus(); i.setSelectionRange(v.length, v.length); }, 220);
+  };
 }

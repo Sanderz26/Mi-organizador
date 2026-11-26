@@ -1,7 +1,7 @@
 // Negocio de impresión 3D: pedidos, costos reales, clientes, gastos e inventario
 import { state, commit, upsert, remove, find } from '../store.js';
 import { icon } from '../icons.js';
-import { esc, todayKey, fmtDate, fmtMoney, fmtNum, formModal, emptyState, sum, monthKey, MONTHS, cap } from '../util.js';
+import { esc, todayKey, fmtDate, fmtMoney, fmtNum, formModal, emptyState, sum, monthKey, MONTHS, cap, matches } from '../util.js';
 import { chart, destroyCharts } from '../charts.js';
 import { sound } from '../sound.js';
 
@@ -10,6 +10,8 @@ const MATERIALS = ['PLA', 'PETG', 'ABS', 'TPU', 'ASA', 'Resina', 'Nylon', 'Otro'
 const EXP_CATS = ['Filamento', 'Resina', 'Repuestos', 'Impresora o equipo', 'Herramientas', 'Publicidad', 'Envíos', 'Empaques', 'Software', 'Otro'];
 let tab = 'resumen';
 let month = monthKey(new Date());
+let bq = '';
+let bqTimer = null;
 
 export function saleCost(x) {
   const s = state.settings;
@@ -79,7 +81,7 @@ export async function saleDialog(sale = null) {
   commit();
 }
 
-async function clientDialog(c = null) {
+export async function clientDialog(c = null) {
   const v = await formModal({
     title: c ? 'Editar cliente' : 'Nuevo cliente',
     deleteLabel: c ? 'Eliminar' : null,
@@ -97,7 +99,7 @@ async function clientDialog(c = null) {
   sound('complete'); commit();
 }
 
-async function expenseDialog(x = null) {
+export async function expenseDialog(x = null) {
   const v = await formModal({
     title: x ? 'Editar gasto' : 'Registrar gasto o inversión',
     deleteLabel: x ? 'Eliminar' : null,
@@ -115,7 +117,7 @@ async function expenseDialog(x = null) {
   sound('complete'); commit();
 }
 
-async function productDialog(p = null) {
+export async function productDialog(p = null) {
   const v = await formModal({
     title: p ? 'Editar producto' : 'Nuevo producto',
     deleteLabel: p ? 'Eliminar' : null,
@@ -187,40 +189,47 @@ export function render(el) {
   if (tab === 'resumen') { const r = resumen(); body = r.html; after = r.after; addBtn = `<button class="btn primary" data-newsale>${icon('plus', 16)} Pedido</button>`; }
   else if (tab === 'pedidos') {
     addBtn = `<button class="btn primary" data-newsale>${icon('plus', 16)} Pedido</button>`;
-    const list = state.sales.slice().sort((a, b) => b.date.localeCompare(a.date));
+    const list = state.sales.slice().sort((a, b) => b.date.localeCompare(a.date)).filter((x) => !bq || matches(bq, x.desc, clientName(x.clientId), x.material, x.notes, STATUS[x.status]?.l));
     body = list.length ? `<div class="card" style="padding:6px 8px"><div class="tablewrap"><table class="t"><thead><tr><th>Fecha</th><th>Pedido</th><th>Cliente</th><th>Estado</th><th class="n">Precio</th><th class="n">Costo</th><th class="n">Ganancia</th></tr></thead><tbody>
       ${list.map((x) => { const c = saleCost(x); const p = (x.price || 0) - c.total; const S = STATUS[x.status] || STATUS.produccion; return `<tr class="click" data-sale="${esc(x.id)}"><td class="num">${esc(fmtDate(x.date))}</td><td>${esc(x.desc)}${x.qty > 1 ? ` <span class="faint">×${x.qty}</span>` : ''}<div class="tiny faint">${esc(x.material || '')}${x.grams ? ' · ' + x.grams + ' g' : ''}${x.hours ? ' · ' + fmtNum(x.hours) + ' h' : ''}</div></td><td>${esc(clientName(x.clientId))}</td><td><span class="pill ${S.c}">${S.l}</span></td><td class="n">${fmtMoney(x.price)}</td><td class="n">${fmtMoney(c.total)}</td><td class="n ${p >= 0 ? 'up' : 'down'}">${fmtMoney(p)}</td></tr>`; }).join('')}
       </tbody></table></div></div>` : `<div class="card">${emptyState('receipt', 'Registra tu primer pedido de impresión.', `<button class="btn primary" data-newsale>${icon('plus', 16)} Pedido</button>`)}</div>`;
   } else if (tab === 'clientes') {
     addBtn = `<button class="btn primary" data-newclient>${icon('plus', 16)} Cliente</button>`;
-    const rows = state.clients.map((c) => { const s = state.sales.filter((x) => x.clientId === c.id && counts(x)); return { c, total: sum(s, (x) => x.price), n: s.length, last: s.map((x) => x.date).sort().at(-1) }; }).sort((a, b) => b.total - a.total);
+    const rows = state.clients.filter((c) => !bq || matches(bq, c.name, c.phone, c.contact, c.city, c.notes)).map((c) => { const s = state.sales.filter((x) => x.clientId === c.id && counts(x)); return { c, total: sum(s, (x) => x.price), n: s.length, last: s.map((x) => x.date).sort().at(-1) }; }).sort((a, b) => b.total - a.total);
     body = rows.length ? `<div class="card" style="padding:6px 8px"><div class="tablewrap"><table class="t"><thead><tr><th>Cliente</th><th>Contacto</th><th class="n">Pedidos</th><th class="n">Total comprado</th><th class="n">Último</th></tr></thead><tbody>
       ${rows.map(({ c, total, n, last }) => `<tr class="click" data-client="${esc(c.id)}"><td><b style="font-weight:500">${esc(c.name)}</b>${c.city ? `<div class="tiny faint">${esc(c.city)}</div>` : ''}</td><td class="small">${esc(c.phone || c.contact || '—')}</td><td class="n">${n}</td><td class="n">${fmtMoney(total)}</td><td class="n">${last ? esc(fmtDate(last)) : '—'}</td></tr>`).join('')}
       </tbody></table></div></div>` : `<div class="card">${emptyState('users', 'Agrega a tus clientes para saber quién te compra y cuánto.', `<button class="btn primary" data-newclient>${icon('plus', 16)} Cliente</button>`)}</div>`;
   } else if (tab === 'gastos') {
     addBtn = `<button class="btn primary" data-newexp>${icon('plus', 16)} Gasto o inversión</button>`;
-    const list = state.expenses.slice().sort((a, b) => b.date.localeCompare(a.date));
+    const list = state.expenses.slice().sort((a, b) => b.date.localeCompare(a.date)).filter((x) => !bq || matches(bq, x.concept, x.category));
     const totInv = sum(state.expenses.filter((x) => x.investment), (x) => x.amount);
     body = `<div class="grid g3"><div class="stat"><div class="lbl">Inversión total</div><div class="val">${fmtMoney(totInv)}</div></div><div class="stat"><div class="lbl">Gastos totales</div><div class="val">${fmtMoney(sum(state.expenses.filter((x) => !x.investment), (x) => x.amount))}</div></div><div class="stat"><div class="lbl">Ventas totales</div><div class="val">${fmtMoney(sum(state.sales.filter(counts), (x) => x.price))}</div></div></div>
       ${list.length ? `<div class="card" style="padding:6px 8px"><div class="tablewrap"><table class="t"><thead><tr><th>Fecha</th><th>Concepto</th><th>Categoría</th><th>Tipo</th><th class="n">Valor</th></tr></thead><tbody>${list.map((x) => `<tr class="click" data-exp="${esc(x.id)}"><td class="num">${esc(fmtDate(x.date))}</td><td>${esc(x.concept)}</td><td class="small">${esc(x.category)}</td><td><span class="pill ${x.investment ? 'acc' : ''}">${x.investment ? 'Inversión' : 'Gasto'}</span></td><td class="n">${fmtMoney(x.amount)}</td></tr>`).join('')}</tbody></table></div></div>` : `<div class="card">${emptyState('cash', 'Registra lo que gastas e inviertes en el negocio.')}</div>`}`;
   } else {
     addBtn = `<button class="btn primary" data-newprod>${icon('plus', 16)} Producto</button>`;
-    body = state.products.length ? `<div class="card" style="padding:6px 8px"><div class="tablewrap"><table class="t"><thead><tr><th>Producto</th><th class="n">Stock</th><th class="n">Costo</th><th class="n">Precio</th><th class="n">Margen</th><th class="n">Vendidos</th></tr></thead><tbody>
-      ${state.products.map((p) => { const sold = sum(state.sales.filter((x) => x.productId === p.id && counts(x)), (x) => x.qty); const mg = p.price ? Math.round(((p.price - (p.cost || 0)) / p.price) * 100) : null; return `<tr class="click" data-prod="${esc(p.id)}"><td>${esc(p.name)}</td><td class="n"><span class="pill ${(Number(p.stock) || 0) <= (Number(p.minStock) || 0) ? 'warn' : ''}">${p.stock ?? 0}</span></td><td class="n">${fmtMoney(p.cost)}</td><td class="n">${fmtMoney(p.price)}</td><td class="n">${mg === null ? '—' : mg + '%'}</td><td class="n">${sold}</td></tr>`; }).join('')}
+    const prods = state.products.filter((p) => !bq || matches(bq, p.name, p.notes));
+    body = prods.length ? `<div class="card" style="padding:6px 8px"><div class="tablewrap"><table class="t"><thead><tr><th>Producto</th><th class="n">Stock</th><th class="n">Costo</th><th class="n">Precio</th><th class="n">Margen</th><th class="n">Vendidos</th></tr></thead><tbody>
+      ${prods.map((p) => { const sold = sum(state.sales.filter((x) => x.productId === p.id && counts(x)), (x) => x.qty); const mg = p.price ? Math.round(((p.price - (p.cost || 0)) / p.price) * 100) : null; return `<tr class="click" data-prod="${esc(p.id)}"><td>${esc(p.name)}</td><td class="n"><span class="pill ${(Number(p.stock) || 0) <= (Number(p.minStock) || 0) ? 'warn' : ''}">${p.stock ?? 0}</span></td><td class="n">${fmtMoney(p.cost)}</td><td class="n">${fmtMoney(p.price)}</td><td class="n">${mg === null ? '—' : mg + '%'}</td><td class="n">${sold}</td></tr>`; }).join('')}
       </tbody></table></div></div>` : `<div class="card">${emptyState('package', 'Cuando empieces a vender productos impresos, lleva aquí tu inventario.', `<button class="btn primary" data-newprod>${icon('plus', 16)} Producto</button>`)}</div>`;
   }
 
   el.innerHTML = `
   <div class="page-head"><div><div class="sub">Impresión 3D</div><h1>Negocio</h1></div><div class="head-actions">${addBtn}</div></div>
-  <div class="tabs">${[['resumen', 'Resumen'], ['pedidos', 'Pedidos'], ['clientes', 'Clientes'], ['gastos', 'Gastos e inversión'], ['inventario', 'Inventario']].map(([k, l]) => `<button class="tab ${tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
+  <div class="split"><div class="tabs">${[['resumen', 'Resumen'], ['pedidos', 'Pedidos'], ['clientes', 'Clientes'], ['gastos', 'Gastos e inversión'], ['inventario', 'Inventario']].map(([k, l]) => `<button class="tab ${tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>${tab !== 'resumen' ? `<input type="search" data-bq placeholder="Buscar en ${tab}" value="${esc(bq)}" style="max-width:240px">` : ''}</div>
   ${body}`;
   after?.(el);
 
+  el.oninput = (e) => {
+    if (!e.target.matches('[data-bq]')) return;
+    clearTimeout(bqTimer);
+    const v = e.target.value;
+    bqTimer = setTimeout(() => { bq = v; render(el); const i = el.querySelector('[data-bq]'); if (i) { i.focus(); i.setSelectionRange(v.length, v.length); } }, 220);
+  };
   el.onclick = (e) => {
     const t = e.target.closest('button,[data-sale],[data-client],[data-exp],[data-prod]');
     if (!t) return;
     const d = t.dataset;
-    if (d.tab) { tab = d.tab; render(el); }
+    if (d.tab) { tab = d.tab; bq = ''; render(el); }
     else if (d.m) { const [y, m] = month.split('-').map(Number); month = monthKey(new Date(y, m - 1 + Number(d.m), 1)); render(el); }
     else if ('newsale' in d) saleDialog();
     else if ('newclient' in d) clientDialog();
