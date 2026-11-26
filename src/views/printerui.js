@@ -122,8 +122,8 @@ function whereToDelete(text) {
     let done = false;
     const ov = openModal({
       title: 'Borrar',
-      body: `<p>${esc(text)}</p><p class="small muted">Si la borras también en la impresora, ya no se podrá volver a traer.</p>`,
-      foot: `<button class="btn ghost" data-w="">Cancelar</button><button class="btn" data-w="app">Solo en la app</button><button class="btn primary danger-bg" data-w="both">En la app y en la impresora</button>`,
+      body: `<p>${esc(text)}</p><p class="small muted">"También en la impresora" borra el registro que la impresora comparte por wifi, así ya no se puede volver a traer. La lista que se ve en la <b>pantalla</b> de la impresora es aparte: esa se borra desde la misma impresora.</p>`,
+      foot: `<button class="btn ghost" data-w="">Cancelar</button><button class="btn" data-w="app">Solo en la app</button><button class="btn primary danger-bg" data-w="both">También en la impresora</button>`,
     });
     const fin = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
     ov.addEventListener('closed', () => { if (!done) { done = true; resolve(null); } });
@@ -144,7 +144,7 @@ async function deletePrints(list, all = false) {
   for (const id of sales) syncSaleFromPrints(id);
   commit();
   sound('delete');
-  toast(where === 'both' ? 'Borrado en la app y en la impresora.' : 'Borrado en la app. En la impresora sigue guardado.');
+  toast(where === 'both' ? 'Borrado en la app y en el registro de red de la impresora. La lista de su pantalla se borra desde la impresora.' : 'Borrado en la app. En la impresora sigue guardado.', { ms: 6000 });
   return true;
 }
 
