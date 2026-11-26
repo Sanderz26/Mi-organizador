@@ -102,7 +102,7 @@ function fieldHtml(f) {
 }
 
 /** Abre un formulario. Resuelve con los valores, {_action} o null si se cancela. */
-export function formModal({ title, fields, submitLabel = 'Guardar', deleteLabel, extraHtml = '', wide, onChange }) {
+export function formModal({ title, fields, submitLabel = 'Guardar', deleteLabel, extraHtml = '', wide, onChange, confirmDelete = true }) {
   return new Promise((resolve) => {
     let done = false;
     const ov = openModal({
@@ -129,7 +129,7 @@ export function formModal({ title, fields, submitLabel = 'Guardar', deleteLabel,
     ov.addEventListener('closed', () => { if (!done) { done = true; resolve(null); } });
     ov.querySelector('[data-cancel]').onclick = () => finish(null);
     const del = ov.querySelector('[data-del]');
-    if (del) del.onclick = async () => { if (await confirmModal('¿Eliminar este elemento? Esta acción no se puede deshacer.')) finish({ _action: 'delete' }); };
+    if (del) del.onclick = async () => { if (!confirmDelete || (await confirmModal('¿Eliminar este elemento? Esta acción no se puede deshacer.'))) finish({ _action: 'delete' }); };
     if (onChange) { form.addEventListener('input', () => onChange(read(), form)); form.addEventListener('change', () => onChange(read(), form)); onChange(read(), form); }
     const submit = (e) => {
       e?.preventDefault();

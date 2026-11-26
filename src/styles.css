@@ -156,6 +156,7 @@ p { margin: 0; }
 .btn.ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
 .btn.ghost:hover { background: var(--surface-2); color: var(--ink); }
 .btn.danger { color: var(--bad); }
+.btn.primary.danger-bg { background: var(--bad); border-color: var(--bad); color: #fff; }
 .btn.sm { min-height: 32px; padding: 0 10px; font-size: 13px; border-radius: 8px; }
 .btn.icon { padding: 0; width: 36px; }
 .btn.icon.sm { width: 32px; }

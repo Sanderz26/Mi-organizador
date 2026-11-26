@@ -166,6 +166,16 @@ export async function printerAction(kind) {
   setTimeout(pollPrinter, 1500);
 }
 
+/** Borra trabajos del historial de la impresora (ids 'mr-…' de la app, o todos) */
+export async function deletePrinterHistory(ids = null) {
+  if (ids === null) { await mr('/server/history/job?all=true', { method: 'DELETE', timeout: 10000 }); return; }
+  for (const id of ids) {
+    if (!String(id).startsWith('mr-')) continue;
+    try { await mr('/server/history/job?uid=' + encodeURIComponent(String(id).slice(3)), { method: 'DELETE', timeout: 8000 }); }
+    catch (e) { if (e.code !== 404) throw e; } // si ya no estaba en la impresora, no pasa nada
+  }
+}
+
 // ---------- Costos ----------
 export function printCost(p) {
   const s = state.settings;

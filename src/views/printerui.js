@@ -1,9 +1,9 @@
 // Pestaña "Impresora" dentro de Negocio
 import { state, commit, find, remove } from '../store.js';
 import { icon } from '../icons.js';
-import { esc, fmtMoney, fmtDate, formModal, confirmModal, emptyState, sum, monthKey, toast } from '../util.js';
+import { esc, fmtMoney, fmtDate, formModal, confirmModal, openModal, emptyState, sum, monthKey, toast } from '../util.js';
 import { sound } from '../sound.js';
-import { printerIp, normIp, testPrinter, pollPrinter, printerLive, onPrinter, printerAction, importHistory, printCost, prettyFile, syncSaleFromPrints } from '../printer.js';
+import { printerIp, normIp, testPrinter, pollPrinter, printerLive, onPrinter, printerAction, importHistory, printCost, prettyFile, syncSaleFromPrints, deletePrinterHistory } from '../printer.js';
 
 const PS = {
   printing: { l: 'Imprimiendo', c: 'acc' }, paused: { l: 'En pausa', c: 'warn' }, complete: { l: 'Terminó', c: 'ok' },
@@ -71,7 +71,7 @@ export function printerTab() {
       </div>
     </div>
     <div class="card" style="padding:6px 8px;margin-top:16px">
-      <div class="card-head" style="padding:8px 8px 0"><h2>Historial</h2><button class="btn ghost sm" data-phist>Traer de la impresora</button></div>
+      <div class="card-head" style="padding:8px 8px 0"><h2>Historial</h2><div class="split" style="gap:4px"><button class="btn ghost sm" data-phist>Traer de la impresora</button>${all.length ? `<button class="btn ghost sm danger" data-pclear>${icon('trash', 15)} Borrar historial</button>` : ''}</div></div>
       ${all.length ? `<div class="tablewrap"><table class="t"><thead><tr><th>Fecha</th><th>Archivo</th><th>Estado</th><th class="n">Tiempo</th><th class="n">Filamento</th><th class="n">Costo</th><th>Pedido</th></tr></thead><tbody>
         ${all.slice(0, 100).map((p) => { const H = HS[p.status] || HS.completed; const sale = p.saleId ? find('sales', p.saleId) : null; return `<tr class="click" data-print="${esc(p.id)}"><td class="num">${esc(fmtDate(p.date))}<div class="tiny faint">${p.endAt ? hm(p.endAt) : ''}</div></td><td style="max-width:260px;word-break:break-word">${esc(p.name)}</td><td><span class="pill ${H.c}">${H.l}</span></td><td class="n">${dur(p.seconds)}</td><td class="n">${Math.round(p.grams || 0)} g</td><td class="n">${fmtMoney(printCost(p).total)}</td><td class="small">${sale ? esc(sale.desc) : p.status === 'completed' ? '<span style="color:var(--accent-ink);font-weight:500">Asociar</span>' : '—'}</td></tr>`; }).join('')}
         </tbody></table></div>` : `<p class="small muted" style="padding:6px 8px 12px">Cuando termine una impresión aparecerá aquí con su tiempo, filamento y costo. Toca "Traer de la impresora" para importar las anteriores.</p>`}
@@ -111,8 +111,41 @@ export async function printerClick(t, rerender) {
     catch (e) { toast(e.message, { ms: 6000 }); sound('error'); }
     return true;
   }
+  if ('pclear' in d) { if (await deletePrints(state.prints.slice(), true)) rerender(); return true; }
   if (d.print) { await printDialog(find('prints', d.print)); rerender(); return true; }
   return false;
+}
+
+/** Pregunta dónde borrar: 'app' | 'both' | null (cancelado) */
+function whereToDelete(text) {
+  return new Promise((resolve) => {
+    let done = false;
+    const ov = openModal({
+      title: 'Borrar',
+      body: `<p>${esc(text)}</p><p class="small muted">Si la borras también en la impresora, ya no se podrá volver a traer.</p>`,
+      foot: `<button class="btn ghost" data-w="">Cancelar</button><button class="btn" data-w="app">Solo en la app</button><button class="btn primary danger-bg" data-w="both">En la app y en la impresora</button>`,
+    });
+    const fin = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
+    ov.addEventListener('closed', () => { if (!done) { done = true; resolve(null); } });
+    ov.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => fin(b.dataset.w || null); });
+  });
+}
+
+async function deletePrints(list, all = false) {
+  const fromPrinter = list.some((p) => String(p.id).startsWith('mr-'));
+  const where = fromPrinter ? await whereToDelete(all ? `¿Borrar las ${list.length} impresiones del historial?` : `¿Borrar "${list[0].name}" del historial?`) : ((await confirmModal(all ? '¿Borrar todo el historial de impresiones?' : '¿Borrar esta impresión del historial?')) ? 'app' : null);
+  if (!where) return false;
+  if (where === 'both') {
+    try { await deletePrinterHistory(all ? null : list.map((p) => p.id)); }
+    catch (e) { toast('No se pudo borrar en la impresora: ' + e.message + ' No se borró nada.', { ms: 7000 }); sound('error'); return false; }
+  }
+  const sales = new Set(list.map((p) => p.saleId).filter(Boolean));
+  for (const p of list) remove('prints', p.id);
+  for (const id of sales) syncSaleFromPrints(id);
+  commit();
+  sound('delete');
+  toast(where === 'both' ? 'Borrado en la app y en la impresora.' : 'Borrado en la app. En la impresora sigue guardado.');
+  return true;
 }
 
 async function configDialog() {
@@ -158,6 +191,7 @@ async function printDialog(p) {
   const v = await formModal({
     title: 'Impresión',
     deleteLabel: 'Eliminar del historial',
+    confirmDelete: false, // se pregunta después dónde borrar
     fields: [
       { name: 'name', label: 'Nombre', type: 'text', value: p.name, full: true },
       { name: 'saleId', label: 'Pedido', type: 'select', value: p.saleId || '', full: true, options: [{ v: '', l: 'Sin pedido' }, { v: '__new', l: '+ Crear pedido con esta impresión' }, ...sales.map((x) => ({ v: x.id, l: `${fmtDate(x.date)} · ${x.desc}` }))], hint: 'Al asociarla, el pedido toma los gramos y horas de sus impresiones para calcular tu ganancia.' },
@@ -174,7 +208,7 @@ async function printDialog(p) {
   });
   if (!v) return;
   const oldSale = p.saleId;
-  if (v._action === 'delete') { remove('prints', p.id); if (oldSale) syncSaleFromPrints(oldSale); commit(); sound('delete'); return; }
+  if (v._action === 'delete') { await deletePrints([p]); return; }
   p.name = v.name || prettyFile(p.file);
   p.grams = Number(v.grams) || 0;
   let saleId = v.saleId;
