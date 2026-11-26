@@ -20,7 +20,7 @@ async function challenge(verifier) {
 }
 
 const client = () => (isWindows ? { id: GOOGLE.desktopClientId, secret: GOOGLE.desktopClientSecret } : isAndroid ? { id: GOOGLE.androidClientId, secret: '' } : { id: '', secret: '' });
-export const googleAvailable = () => !!client().id;
+export const googleAvailable = () => !!client().id && (!isWindows || !!client().secret);
 
 function saved() { try { return JSON.parse(localStorage.getItem(LS) || 'null'); } catch { return null; } }
 function save(v) { try { if (v) localStorage.setItem(LS, JSON.stringify(v)); else localStorage.removeItem(LS); } catch { /* */ } }
