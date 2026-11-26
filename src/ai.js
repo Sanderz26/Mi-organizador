@@ -86,9 +86,13 @@ export async function complete(opts) {
 async function completeWith({ system, messages, json = true, maxTokens = 1800, cfg }, model) {
   const key = cfg.keys[cfg.provider];
   if (cfg.provider === 'groq') {
-    const body = { model, temperature: 0.3, max_tokens: maxTokens, messages: [{ role: 'system', content: system }, ...messages] };
-    let r = await httpRequest({ method: 'POST', url: 'https://api.groq.com/openai/v1/chat/completions', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(json ? { ...body, response_format: { type: 'json_object' } } : body) });
-    if (r.status === 400 && json) r = await httpRequest({ method: 'POST', url: 'https://api.groq.com/openai/v1/chat/completions', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    // Los modelos que razonan gastan tokens pensando: se les da más margen y razonamiento corto
+    const reasoning = /gpt-oss|qwen3|deepseek-r1/i.test(model);
+    const body = { model, temperature: 0.3, max_tokens: reasoning ? maxTokens + 3000 : maxTokens, messages: [{ role: 'system', content: system }, ...messages] };
+    const extra = { ...(json ? { response_format: { type: 'json_object' } } : {}), ...(/gpt-oss/i.test(model) ? { reasoning_effort: 'low' } : {}) };
+    const post = (b) => httpRequest({ method: 'POST', url: 'https://api.groq.com/openai/v1/chat/completions', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(b) });
+    let r = await post({ ...body, ...extra });
+    if (r.status === 400 && Object.keys(extra).length && !/model/i.test(r.text)) r = await post(body);
     if (r.status !== 200) throw fail(r.status, r.text, 'groq');
     return JSON.parse(r.text).choices?.[0]?.message?.content || '';
   }
@@ -205,17 +209,34 @@ export function buildContext(question = '', budget = 9000) {
   return text.length > budget ? text.slice(0, budget) + '\n(…recortado)' : text;
 }
 
-export const SYSTEM = `Eres el asistente personal dentro de la app "Organizador" de un estudiante universitario en Colombia. Respondes siempre en español, de forma breve, clara y útil, usando sus datos reales (abajo). No inventes datos que no estén.
-Puedes proponer acciones para que el usuario las confirme: crear tareas, eventos, exámenes o registrar comidas. Usa fechas en formato AAAA-MM-DD y horas HH:MM (24 h). Resuelve fechas relativas ("el viernes", "mañana") a partir de la fecha de hoy.
+export const SYSTEM = `Eres el asistente personal dentro de la app "Organizador" de un estudiante universitario en Colombia. Respondes siempre en español, breve y claro, usando sus datos reales (abajo). No inventes datos.
+MUY IMPORTANTE: tú NO puedes modificar la app directamente. Lo único que cambia la app son los objetos que pongas en "acciones"; el usuario los ve como tarjetas y los confirma con un botón. Por eso:
+- Si el usuario pide crear, agregar, registrar, anotar o completar algo, SIEMPRE incluye la acción correspondiente en "acciones".
+- En "respuesta" nunca digas que ya lo hiciste ("creé", "agregué", "listo, quedó"). Di "Te dejo esto para que lo confirmes" o similar.
+- Si no existe un tipo de acción para lo que pide, dilo con honestidad y explica dónde hacerlo en la app.
+Usa fechas AAAA-MM-DD y horas HH:MM (24 h). Resuelve fechas relativas ("el viernes", "mañana") desde la fecha de hoy. Para "materia" usa el nombre exacto de una materia existente cuando aplique.
 Para calorías y proteína da estimaciones razonables de porciones típicas colombianas.
 Responde SIEMPRE con un objeto JSON válido con esta forma exacta:
 {"respuesta": "texto para el usuario (puedes usar **negrita** y listas con - )", "acciones": [ ... ]}
-Cada acción es uno de estos objetos (omite campos que no sepas):
-{"tipo":"tarea","titulo":"...","fecha":"AAAA-MM-DD","hora":"HH:MM","materia":"nombre exacto de la materia","prioridad":"alta|media|baja","recordatorio_min":30}
+Tipos de acción disponibles (omite los campos que no sepas):
+{"tipo":"tarea","titulo":"...","fecha":"AAAA-MM-DD","hora":"HH:MM","materia":"...","prioridad":"alta|media|baja","recordatorio_min":30}
+{"tipo":"completar_tarea","titulo":"título de una tarea pendiente existente"}
 {"tipo":"evento","subtipo":"evento|reunion|cumpleanos|fecha","titulo":"...","fecha":"AAAA-MM-DD","hora":"HH:MM","lugar":"...","recordatorio_min":60}
-{"tipo":"examen","materia":"...","titulo":"Parcial 2","fecha":"AAAA-MM-DD","hora":"HH:MM","temas":["tema 1","tema 2"]}
+{"tipo":"examen","materia":"...","titulo":"Parcial 2","fecha":"AAAA-MM-DD","hora":"HH:MM","temas":["tema 1"]}
+{"tipo":"materia","nombre":"...","profesor":"...","creditos":3,"meta_horas":6,"horario":[{"dia":"lunes","inicio":"07:00","fin":"09:00","salon":"..."}]}
+{"tipo":"tema","materia":"...","nombre":"...","fecha_examen":"AAAA-MM-DD"}
+{"tipo":"estudio","materia":"...","tema":"...","minutos":60,"fecha":"AAAA-MM-DD"}
+{"tipo":"nota","titulo":"...","contenido":"...","materia":"..."}
 {"tipo":"comida","comida":"Desayuno|Media mañana|Almuerzo|Algo|Cena|Snack","descripcion":"...","kcal":0,"proteina":0,"fecha":"AAAA-MM-DD"}
-Si el usuario solo pregunta algo, "acciones" va vacío. No propongas acciones que no pidió.`;
+{"tipo":"peso","kg":70.5,"fecha":"AAAA-MM-DD"}
+{"tipo":"entrenamiento","fecha":"AAAA-MM-DD","grupo":"Pierna","ejercicios":[{"nombre":"Sentadilla","series":4,"reps":8,"peso":60}]}
+{"tipo":"cliente","nombre":"...","telefono":"...","ciudad":"..."}
+{"tipo":"pedido","cliente":"...","descripcion":"...","precio":45000,"cantidad":1,"material":"PLA","gramos":120,"horas":5,"estado":"cotizado|produccion|entregado|pagado","fecha":"AAAA-MM-DD"}
+{"tipo":"gasto","concepto":"...","valor":80000,"categoria":"Filamento","inversion":false,"fecha":"AAAA-MM-DD"}
+Si el usuario solo pregunta algo, "acciones" va vacío.`;
+
+/** ¿La respuesta afirma haber hecho algo sin traer acciones? */
+export const claimsDone = (text) => /(?:^|[^a-záéíóúñ])(cre[eé]|he creado|agregu[eé]|he agregado|añad[ií]|he añadido|registr[eé]|he registrado|anot[eé]|guard[eé]|complet[eé]|marqu[eé]|qued[oó] (creada|creado|registrad[oa]|agregad[oa]|lista|listo)|ya (est[aá]|qued[oó]))(?![a-záéíóúñ])/i.test(String(text || ''));
 
 /** Estima calorías y proteína de una comida descrita en texto */
 export async function estimateMeal(desc) {
