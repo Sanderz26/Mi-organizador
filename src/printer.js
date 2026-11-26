@@ -166,16 +166,6 @@ export async function printerAction(kind) {
   setTimeout(pollPrinter, 1500);
 }
 
-/** Borra trabajos del historial de la impresora (ids 'mr-…' de la app, o todos) */
-export async function deletePrinterHistory(ids = null) {
-  if (ids === null) { await mr('/server/history/job?all=true', { method: 'DELETE', timeout: 10000 }); return; }
-  for (const id of ids) {
-    if (!String(id).startsWith('mr-')) continue;
-    try { await mr('/server/history/job?uid=' + encodeURIComponent(String(id).slice(3)), { method: 'DELETE', timeout: 8000 }); }
-    catch (e) { if (e.code !== 404) throw e; } // si ya no estaba en la impresora, no pasa nada
-  }
-}
-
 // ---------- Costos ----------
 export function printCost(p) {
   const s = state.settings;
@@ -188,7 +178,7 @@ export function printCost(p) {
 export function syncSaleFromPrints(saleId) {
   const sale = find('sales', saleId);
   if (!sale) return null;
-  const ps = state.prints.filter((p) => p.saleId === saleId);
+  const ps = state.prints.filter((p) => p.saleId === saleId && !p.trashed);
   if (!ps.length) return sale;
   sale.grams = Math.round(ps.reduce((a, p) => a + (Number(p.grams) || 0), 0));
   sale.hours = Math.round((ps.reduce((a, p) => a + (Number(p.seconds) || 0), 0) / 3600) * 10) / 10;
@@ -204,15 +194,24 @@ export function printerContext() {
     const st = { printing: 'imprimiendo', paused: 'en pausa', complete: 'terminó la última impresión', cancelled: 'la última impresión se canceló', error: 'con error', standby: 'lista, sin imprimir' }[s.ps] || s.ps;
     L.push(`Impresora 3D (Creality, IP ${printerIp()}): ${st}${s.file && ACTIVE.has(s.ps) ? `. Archivo: ${s.name}, avance ${Math.round(s.progress * 100)}%, lleva ${Math.round(s.printSecs / 60)} min${s.left !== null ? `, faltan unos ${Math.round(s.left / 60)} min (termina hacia las ${new Date(s.eta || Date.now() + s.left * 1000).toTimeString().slice(0, 5)})` : ''}${s.layers ? `, capa ${s.layer} de ${s.layers}` : ''}` : ''}. Boquilla ${Math.round(s.ext || 0)}/${Math.round(s.extT || 0)} °C, cama ${Math.round(s.bed || 0)}/${Math.round(s.bedT || 0)} °C.${s.message ? ' Mensaje: ' + s.message : ''}`);
   } else if (s.state === 'offline') L.push('Impresora 3D: no responde (apagada o fuera del wifi).');
-  const recent = state.prints.slice().sort((a, b) => (b.endAt || 0) - (a.endAt || 0)).slice(0, 5);
+  const recent = state.prints.filter((p) => !p.trashed).sort((a, b) => (b.endAt || 0) - (a.endAt || 0)).slice(0, 5);
   if (recent.length) L.push('Últimas impresiones: ' + recent.map((p) => `${p.date} ${p.name} (${Math.round(p.seconds / 60)} min, ${p.grams} g, ${p.status === 'completed' ? 'ok' : p.status})`).join('; ') + '.');
   return L.join('\n');
 }
 
 // ---------- Revisión en segundo plano ----------
 let loop = null;
+/** Impresiones en la papelera hace más de 30 días se borran solas (solo en la app) */
+export function purgeTrash() {
+  const old = state.prints.filter((p) => p.trashed && Date.now() - p.trashed > 30 * 86400000);
+  if (!old.length) return;
+  state.prints = state.prints.filter((p) => !old.includes(p));
+  commit();
+}
+
 export function startPrinterLoop() {
   if (loop) return;
+  setTimeout(purgeTrash, 8000);
   const tick = () => { if (!printerIp()) return; if (isAndroid && document.visibilityState !== 'visible') return; pollPrinter().then(() => importHistory()); };
   setTimeout(tick, 5000);
   // Más seguido mientras imprime, para avisar a tiempo

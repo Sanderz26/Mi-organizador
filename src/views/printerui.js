@@ -1,9 +1,9 @@
 // Pestaña "Impresora" dentro de Negocio
 import { state, commit, find, remove } from '../store.js';
 import { icon } from '../icons.js';
-import { esc, fmtMoney, fmtDate, formModal, confirmModal, openModal, emptyState, sum, monthKey, toast } from '../util.js';
+import { esc, fmtMoney, fmtDate, formModal, confirmModal, emptyState, sum, monthKey, toast } from '../util.js';
 import { sound } from '../sound.js';
-import { printerIp, normIp, testPrinter, pollPrinter, printerLive, onPrinter, printerAction, importHistory, printCost, prettyFile, syncSaleFromPrints, deletePrinterHistory } from '../printer.js';
+import { printerIp, normIp, testPrinter, pollPrinter, printerLive, onPrinter, printerAction, importHistory, printCost, prettyFile, syncSaleFromPrints } from '../printer.js';
 
 const PS = {
   printing: { l: 'Imprimiendo', c: 'acc' }, paused: { l: 'En pausa', c: 'warn' }, complete: { l: 'Terminó', c: 'ok' },
@@ -54,7 +54,10 @@ export function printerTab() {
     };
   }
   const mk = monthKey(new Date());
-  const all = state.prints.slice().sort((a, b) => (b.endAt || 0) - (a.endAt || 0));
+  const sorted = state.prints.slice().sort((a, b) => (b.endAt || 0) - (a.endAt || 0));
+  const all = sorted.filter((p) => !p.trashed);
+  const trash = state.prints.filter((p) => p.trashed).sort((a, b) => b.trashed - a.trashed);
+  if (showTrash && !trash.length) showTrash = false;
   const month = all.filter((p) => (p.date || '').startsWith(mk));
   const ok = month.filter((p) => p.status === 'completed');
   const failed = month.filter((p) => p.status !== 'completed');
@@ -70,13 +73,44 @@ export function printerTab() {
         <div class="kv"><span class="muted">Sin asociar a un pedido</span><span>${ok.filter((p) => !p.saleId).length}</span></div>
       </div>
     </div>
+    ${showTrash ? trashHtml(trash) : `
     <div class="card" style="padding:6px 8px;margin-top:16px">
-      <div class="card-head" style="padding:8px 8px 0"><h2>Historial</h2><div class="split" style="gap:4px"><button class="btn ghost sm" data-phist>Traer de la impresora</button>${all.length ? `<button class="btn ghost sm danger" data-pclear>${icon('trash', 15)} Borrar historial</button>` : ''}</div></div>
+      <div class="card-head" style="padding:8px 8px 0"><h2>Historial</h2><div class="split" style="gap:4px"><button class="btn ghost sm" data-phist>Traer de la impresora</button>${trash.length ? `<button class="btn ghost sm" data-ptrash>${icon('trash', 15)} Papelera (${trash.length})</button>` : ''}${all.length ? `<button class="btn ghost sm danger" data-pclear>Vaciar historial</button>` : ''}</div></div>
       ${all.length ? `<div class="tablewrap"><table class="t"><thead><tr><th>Fecha</th><th>Archivo</th><th>Estado</th><th class="n">Tiempo</th><th class="n">Filamento</th><th class="n">Costo</th><th>Pedido</th></tr></thead><tbody>
         ${all.slice(0, 100).map((p) => { const H = HS[p.status] || HS.completed; const sale = p.saleId ? find('sales', p.saleId) : null; return `<tr class="click" data-print="${esc(p.id)}"><td class="num">${esc(fmtDate(p.date))}<div class="tiny faint">${p.endAt ? hm(p.endAt) : ''}</div></td><td style="max-width:260px;word-break:break-word">${esc(p.name)}</td><td><span class="pill ${H.c}">${H.l}</span></td><td class="n">${dur(p.seconds)}</td><td class="n">${Math.round(p.grams || 0)} g</td><td class="n">${fmtMoney(printCost(p).total)}</td><td class="small">${sale ? esc(sale.desc) : p.status === 'completed' ? '<span style="color:var(--accent-ink);font-weight:500">Asociar</span>' : '—'}</td></tr>`; }).join('')}
         </tbody></table></div>` : `<p class="small muted" style="padding:6px 8px 12px">Cuando termine una impresión aparecerá aquí con su tiempo, filamento y costo. Toca "Traer de la impresora" para importar las anteriores.</p>`}
-    </div>`;
+      <p class="tiny faint" style="padding:0 8px 10px;margin:0">Lo que borres aquí solo se quita de la app; en la impresora queda todo igual.</p>
+    </div>`}`;
   return { html, after: bind };
+}
+
+let showTrash = false;
+
+function trashHtml(trash) {
+  return `<div class="card" style="padding:6px 8px;margin-top:16px">
+    <div class="card-head" style="padding:8px 8px 0"><h2>${icon('trash', 18)} Papelera</h2><div class="split" style="gap:4px"><button class="btn ghost sm" data-ptrashback>${icon('arrow-left', 15)} Volver al historial</button><button class="btn ghost sm" data-prestoreall>Restaurar todo</button><button class="btn ghost sm danger" data-pempty>Vaciar papelera</button></div></div>
+    <div class="tablewrap"><table class="t"><thead><tr><th>Fecha</th><th>Archivo</th><th class="n">Tiempo</th><th class="n">Filamento</th><th>Borrada</th><th></th></tr></thead><tbody>
+      ${trash.map((p) => { const days = Math.max(0, 30 - Math.floor((Date.now() - p.trashed) / 86400000)); return `<tr><td class="num">${esc(fmtDate(p.date))}</td><td style="max-width:260px;word-break:break-word">${esc(p.name)}</td><td class="n">${dur(p.seconds)}</td><td class="n">${Math.round(p.grams || 0)} g</td><td class="small muted">${esc(fmtDate(new Date(p.trashed).toISOString().slice(0, 10)))}<div class="tiny faint">se borra en ${days} ${days === 1 ? 'día' : 'días'}</div></td><td class="n"><div class="split" style="gap:4px;justify-content:flex-end"><button class="btn sm" data-prestore="${esc(p.id)}">Restaurar</button><button class="btn ghost sm danger" data-pkill="${esc(p.id)}" aria-label="Borrar definitivamente">${icon('x', 15)}</button></div></td></tr>`; }).join('')}
+    </tbody></table></div>
+    <p class="tiny faint" style="padding:0 8px 10px;margin:0">Lo que está en la papelera no cuenta en los costos ni en los pedidos. Después de 30 días se borra solo de la app (en la impresora nunca se borra nada).</p>
+  </div>`;
+}
+
+/** Mueve impresiones a la papelera (solo en la app) */
+function trashPrints(list) {
+  const sales = new Set(list.map((p) => p.saleId).filter(Boolean));
+  const now = Date.now();
+  for (const p of list) p.trashed = now;
+  for (const id of sales) syncSaleFromPrints(id);
+  commit();
+  sound('delete');
+}
+function restorePrints(list) {
+  for (const p of list) delete p.trashed;
+  const sales = new Set(list.map((p) => p.saleId).filter(Boolean));
+  for (const id of sales) syncSaleFromPrints(id);
+  commit();
+  sound('complete');
 }
 
 let off = null, timer = null;
@@ -111,41 +145,27 @@ export async function printerClick(t, rerender) {
     catch (e) { toast(e.message, { ms: 6000 }); sound('error'); }
     return true;
   }
-  if ('pclear' in d) { if (await deletePrints(state.prints.slice(), true)) rerender(); return true; }
+  if ('pclear' in d) {
+    const list = state.prints.filter((p) => !p.trashed);
+    if (await confirmModal(`¿Mover las ${list.length} impresiones a la papelera? En la impresora no se borra nada.`, 'Mover a la papelera')) { trashPrints(list); toast('Historial movido a la papelera.', { icon: 'trash' }); rerender(); }
+    return true;
+  }
+  if ('ptrash' in d) { showTrash = true; rerender(); return true; }
+  if ('ptrashback' in d) { showTrash = false; rerender(); return true; }
+  if (d.prestore) { restorePrints([find('prints', d.prestore)].filter(Boolean)); toast('Impresión restaurada.'); rerender(); return true; }
+  if ('prestoreall' in d) { restorePrints(state.prints.filter((p) => p.trashed)); toast('Todo restaurado.'); showTrash = false; rerender(); return true; }
+  if (d.pkill) {
+    const p = find('prints', d.pkill);
+    if (p && (await confirmModal(`¿Borrar "${p.name}" definitivamente de la app? En la impresora sigue guardada, pero no se volverá a traer.`, 'Borrar definitivamente'))) { remove('prints', p.id); commit(); sound('delete'); rerender(); }
+    return true;
+  }
+  if ('pempty' in d) {
+    const list = state.prints.filter((p) => p.trashed);
+    if (await confirmModal(`¿Borrar definitivamente las ${list.length} impresiones de la papelera? Solo se quitan de la app; no se volverán a traer de la impresora.`, 'Vaciar papelera')) { state.prints = state.prints.filter((p) => !p.trashed); commit(); sound('delete'); showTrash = false; rerender(); }
+    return true;
+  }
   if (d.print) { await printDialog(find('prints', d.print)); rerender(); return true; }
   return false;
-}
-
-/** Pregunta dónde borrar: 'app' | 'both' | null (cancelado) */
-function whereToDelete(text) {
-  return new Promise((resolve) => {
-    let done = false;
-    const ov = openModal({
-      title: 'Borrar',
-      body: `<p>${esc(text)}</p><p class="small muted">"También en la impresora" borra el registro que la impresora comparte por wifi, así ya no se puede volver a traer. La lista que se ve en la <b>pantalla</b> de la impresora es aparte: esa se borra desde la misma impresora.</p>`,
-      foot: `<button class="btn ghost" data-w="">Cancelar</button><button class="btn" data-w="app">Solo en la app</button><button class="btn primary danger-bg" data-w="both">También en la impresora</button>`,
-    });
-    const fin = (v) => { if (done) return; done = true; resolve(v); ov.close(); };
-    ov.addEventListener('closed', () => { if (!done) { done = true; resolve(null); } });
-    ov.querySelectorAll('[data-w]').forEach((b) => { b.onclick = () => fin(b.dataset.w || null); });
-  });
-}
-
-async function deletePrints(list, all = false) {
-  const fromPrinter = list.some((p) => String(p.id).startsWith('mr-'));
-  const where = fromPrinter ? await whereToDelete(all ? `¿Borrar las ${list.length} impresiones del historial?` : `¿Borrar "${list[0].name}" del historial?`) : ((await confirmModal(all ? '¿Borrar todo el historial de impresiones?' : '¿Borrar esta impresión del historial?')) ? 'app' : null);
-  if (!where) return false;
-  if (where === 'both') {
-    try { await deletePrinterHistory(all ? null : list.map((p) => p.id)); }
-    catch (e) { toast('No se pudo borrar en la impresora: ' + e.message + ' No se borró nada.', { ms: 7000 }); sound('error'); return false; }
-  }
-  const sales = new Set(list.map((p) => p.saleId).filter(Boolean));
-  for (const p of list) remove('prints', p.id);
-  for (const id of sales) syncSaleFromPrints(id);
-  commit();
-  sound('delete');
-  toast(where === 'both' ? 'Borrado en la app y en el registro de red de la impresora. La lista de su pantalla se borra desde la impresora.' : 'Borrado en la app. En la impresora sigue guardado.', { ms: 6000 });
-  return true;
 }
 
 async function configDialog() {
@@ -190,8 +210,8 @@ async function printDialog(p) {
   const sales = state.sales.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 60);
   const v = await formModal({
     title: 'Impresión',
-    deleteLabel: 'Eliminar del historial',
-    confirmDelete: false, // se pregunta después dónde borrar
+    deleteLabel: 'Mover a la papelera',
+    confirmDelete: false, // va a la papelera: se puede deshacer
     fields: [
       { name: 'name', label: 'Nombre', type: 'text', value: p.name, full: true },
       { name: 'saleId', label: 'Pedido', type: 'select', value: p.saleId || '', full: true, options: [{ v: '', l: 'Sin pedido' }, { v: '__new', l: '+ Crear pedido con esta impresión' }, ...sales.map((x) => ({ v: x.id, l: `${fmtDate(x.date)} · ${x.desc}` }))], hint: 'Al asociarla, el pedido toma los gramos y horas de sus impresiones para calcular tu ganancia.' },
@@ -208,7 +228,7 @@ async function printDialog(p) {
   });
   if (!v) return;
   const oldSale = p.saleId;
-  if (v._action === 'delete') { await deletePrints([p]); return; }
+  if (v._action === 'delete') { trashPrints([p]); toast('Movida a la papelera.', { icon: 'trash' }); return; }
   p.name = v.name || prettyFile(p.file);
   p.grams = Number(v.grams) || 0;
   let saleId = v.saleId;
