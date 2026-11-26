@@ -295,7 +295,9 @@ input[type=color] { width: 100%; height: 40px; border: 1px solid var(--line-2); 
 .act .grow { flex: 1; min-width: 0; } .act .title { font-weight: 500; font-size: 14px; } .act .meta { font-size: 12.5px; color: var(--ink-2); }
 .chatbar { display: flex; gap: 8px; align-items: flex-end; }
 .chatbar textarea { min-height: 44px; max-height: 160px; resize: none; }
-.chatbar .btn { height: 44px; width: 44px; }
+.chatbar .btn { height: 44px; width: 44px; flex: none; }
+.mic.listening { background: var(--bad); border-color: var(--bad); color: #fff; box-shadow: 0 0 0 calc(4px + var(--lvl, 0) * 10px) color-mix(in srgb, var(--bad) 22%, transparent); transition: box-shadow .1s; }
+.mic.transcribing { opacity: .6; }
 .fab { display: none; }
 @media (max-width: 860px) {
   .fab { display: grid; place-items: center; position: fixed; right: 16px; bottom: calc(76px + env(safe-area-inset-bottom)); width: 54px; height: 54px; border-radius: 50%; background: var(--accent); color: #fff; border: 0; box-shadow: var(--shadow-lg); z-index: 19; cursor: pointer; }

@@ -6,11 +6,17 @@ import { aiConfig, aiReady, complete, buildContext, SYSTEM, parseJsonReply, PROV
 import { award, RULES } from '../xp.js';
 import { awardStudy } from '../timer.js';
 import { toggleTask } from './tasks.js';
+import { canDictate, listen, speak, stopSpeaking } from '../voice.js';
 import { sound } from '../sound.js';
 
 const LS = 'organizador-ia-chat';
 let chat = (() => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } })();
 let busy = false;
+let mic = null; // grabación en curso
+let micState = 'idle'; // idle | listening | transcribing
+const VOICE_LS = 'organizador-ia-voz';
+const VOICE_MODES = { dictado: 'Voz al dictar', siempre: 'Voz siempre', apagada: 'Sin voz' };
+let voiceMode = (() => { try { return localStorage.getItem(VOICE_LS) || 'dictado'; } catch { return 'dictado'; } })();
 const saveChat = () => { try { localStorage.setItem(LS, JSON.stringify(chat.slice(-40))); } catch { /* */ } };
 
 const SUGGEST = ['¿Qué tengo esta semana?', 'Hazme un plan de estudio para los próximos 3 días', '¿En qué materia voy más atrasado?', 'Almorcé arroz con pollo y ensalada, regístralo', '¿Cómo va el negocio este mes?'];
@@ -127,8 +133,9 @@ function runAction(a) {
   }
 }
 
-async function send(el, text) {
+async function send(el, text, { byVoice = false } = {}) {
   if (busy || !text.trim()) return;
+  stopSpeaking();
   busy = true;
   chat.push({ role: 'user', content: text.trim() });
   saveChat();
@@ -145,8 +152,11 @@ async function send(el, text) {
       actions = (Array.isArray(reply.acciones) ? reply.acciones : []).filter((a) => actionLabel(a));
       if (!actions.length && claimsDone(reply.respuesta)) reply.respuesta = String(reply.respuesta) + '\n\n**Ojo:** no se agregó nada en la app. Intenta pedírmelo con más detalle.';
     }
-    chat.push({ role: 'assistant', content: String(reply.respuesta || '').trim() || (actions.length ? 'Te propongo esto:' : 'No tengo una respuesta para eso.'), actions: actions.map((a) => ({ ...a, _id: Math.random().toString(36).slice(2), _done: false })) });
-    sound('xp');
+    const content = String(reply.respuesta || '').trim() || (actions.length ? 'Te propongo esto:' : 'No tengo una respuesta para eso.');
+    chat.push({ role: 'assistant', content, actions: actions.map((a) => ({ ...a, _id: Math.random().toString(36).slice(2), _done: false })) });
+    if ((byVoice && voiceMode !== 'apagada') || voiceMode === 'siempre') {
+      speak(content + (actions.length && !/confirm/i.test(content) ? ` Te dejé ${actions.length === 1 ? 'una propuesta' : actions.length + ' propuestas'} para que confirmes.` : ''));
+    } else sound('xp');
   } catch (e) {
     chat.push({ role: 'assistant', content: e.message || 'No se pudo responder.', error: true });
     sound('error');
@@ -154,6 +164,45 @@ async function send(el, text) {
   busy = false;
   saveChat();
   draw(el);
+}
+
+function setMic(el, st, level = 0) {
+  micState = st;
+  const b = el.querySelector('[data-mic]');
+  const input = el.querySelector('[data-in]');
+  if (!b) return;
+  b.className = `btn icon mic ${st}`;
+  b.style.setProperty('--lvl', level);
+  if (input) input.placeholder = st === 'listening' ? 'Escuchando… habla y haz una pausa al terminar' : st === 'transcribing' ? 'Entendiendo lo que dijiste…' : 'Escribe o toca el micrófono para hablar';
+}
+
+async function toggleMic(el) {
+  if (micState === 'listening') { mic?.stop(); return; }
+  if (micState === 'transcribing' || busy) return;
+  const ok = await canDictate();
+  if (!ok.ok) { toast(ok.why, { ms: 5000 }); sound('error'); return; }
+  stopSpeaking();
+  try {
+    sound('start');
+    mic = await listen({ onLevel: (l) => { if (micState === 'listening') setMic(el, 'listening', l); }, onStopped: () => setMic(el, 'transcribing') });
+    setMic(el, 'listening');
+    mic.done.then(() => {}, () => {});
+    const watch = setInterval(() => { if (micState === 'listening' && !el.isConnected) mic?.stop(); }, 1000);
+    const doneP = mic.done;
+    // cuando termina de grabar (silencio o toque), pasa a transcribir
+    const text = await Promise.race([doneP, new Promise((r) => setTimeout(r, 70000))]).finally(() => clearInterval(watch));
+    setMic(el, 'idle');
+    mic = null;
+    if (!text) { toast('No te escuché. Intenta de nuevo.'); return; }
+    const input = el.querySelector('[data-in]');
+    if (input) input.value = '';
+    send(el, text, { byVoice: true });
+  } catch (e) {
+    setMic(el, 'idle');
+    mic = null;
+    toast(e.message || 'No se pudo usar el micrófono', { ms: 5000 });
+    sound('error');
+  }
 }
 
 function draw(el) {
@@ -177,11 +226,11 @@ export function render(el) {
     return;
   }
   el.innerHTML = `<div class="page-head"><div><div class="sub">${esc(PROVIDERS[cfg.provider].name)} · conoce tus materias, tareas, agenda, dieta, gimnasio y negocio</div><h1>Asistente</h1></div>
-    <div class="head-actions"><button class="btn ghost sm" data-clear>${icon('trash', 15)} Borrar chat</button></div></div>
+    <div class="head-actions"><button class="btn ghost sm" data-vmode title="Cuándo leer las respuestas en voz alta">${icon(voiceMode === 'apagada' ? 'volume-off' : 'volume', 15)} ${VOICE_MODES[voiceMode]}</button><button class="btn ghost sm" data-clear>${icon('trash', 15)} Borrar chat</button></div></div>
     <div class="card chatcard">
       <div class="msgs" data-msgs></div>
       <div class="chips" data-sugg>${SUGGEST.map((s) => `<button class="chip" data-s="${esc(s)}">${esc(s)}</button>`).join('')}</div>
-      <form class="chatbar" data-form><textarea data-in rows="1" placeholder="Escribe o pide algo… (Enter para enviar)"></textarea><button class="btn primary icon" data-send aria-label="Enviar">${icon('send', 18)}</button></form>
+      <form class="chatbar" data-form><button type="button" class="btn icon mic ${micState}" data-mic aria-label="Hablar">${icon('microphone', 20)}</button><textarea data-in rows="1" placeholder="Escribe o toca el micrófono para hablar"></textarea><button class="btn primary icon" data-send aria-label="Enviar">${icon('send', 18)}</button></form>
       <p class="tiny faint">Lo que preguntes se envía a ${esc(PROVIDERS[cfg.provider].name)} junto con un resumen de tus datos para poder responder. Revisa las acciones antes de agregarlas.</p>
     </div>`;
   draw(el);
@@ -192,7 +241,16 @@ export function render(el) {
   el.onclick = (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if (b.dataset.s) send(el, b.dataset.s);
+    if ('mic' in b.dataset) toggleMic(el);
+    else if ('vmode' in b.dataset) {
+      const order = ['dictado', 'siempre', 'apagada'];
+      voiceMode = order[(order.indexOf(voiceMode) + 1) % 3];
+      try { localStorage.setItem(VOICE_LS, voiceMode); } catch { /* */ }
+      if (voiceMode === 'apagada') stopSpeaking();
+      b.innerHTML = `${icon(voiceMode === 'apagada' ? 'volume-off' : 'volume', 15)} ${VOICE_MODES[voiceMode]}`;
+      toast(voiceMode === 'dictado' ? 'Responderé en voz alta cuando me hables' : voiceMode === 'siempre' ? 'Leeré todas las respuestas en voz alta' : 'Respuestas solo en texto');
+    }
+    else if (b.dataset.s) send(el, b.dataset.s);
     else if ('clear' in b.dataset) { chat = []; saveChat(); draw(el); }
     else if (b.dataset.act || b.dataset.actall) {
       const [mi, aid] = (b.dataset.act || b.dataset.actall + ':').split(':');

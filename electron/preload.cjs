@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('native', {
   fileExists: (id) => ipcRenderer.invoke('file:exists', id),
   http: (method, url, body) => ipcRenderer.invoke('http', method, url, body),
   request: (opts) => ipcRenderer.invoke('request', opts),
+  multipart: (opts) => ipcRenderer.invoke('multipart', opts),
   googleAuth: (authUrlBase) => ipcRenderer.invoke('google:auth', authUrlBase),
   openFile: (id, name) => ipcRenderer.invoke('file:open', id, name),
   exportFile: (filename, text) => ipcRenderer.invoke('export:save', filename, text),

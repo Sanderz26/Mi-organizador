@@ -128,6 +128,19 @@ ipcMain.handle('http', async (_e, method, url, body) => {
     return { status: r.status, text: await r.text() };
   } catch (e) { return { error: String(e?.message || e) }; }
 });
+ipcMain.handle('multipart', async (_e, { url, headers, fields, file }) => {
+  try {
+    if (!/^https:\/\//.test(url)) return { error: 'URL no válida' };
+    const B = '----organizador' + Date.now().toString(16);
+    const parts = [];
+    for (const [k, v] of Object.entries(fields || {})) parts.push(Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="${k}"\r\n\r\n${v}\r\n`));
+    parts.push(Buffer.from(`--${B}\r\nContent-Disposition: form-data; name="${file.field}"; filename="${file.name}"\r\nContent-Type: ${file.mime}\r\n\r\n`));
+    parts.push(Buffer.from(file.b64, 'base64'));
+    parts.push(Buffer.from(`\r\n--${B}--\r\n`));
+    const r = await net.fetch(url, { method: 'POST', headers: { ...headers, 'Content-Type': `multipart/form-data; boundary=${B}` }, body: Buffer.concat(parts) });
+    return { status: r.status, text: await r.text() };
+  } catch (e) { return { error: String(e?.message || e) }; }
+});
 ipcMain.handle('request', async (_e, { method, url, headers, body, binary }) => {
   try {
     if (!/^https:\/\//.test(url)) return { error: 'URL no válida' };
@@ -214,6 +227,10 @@ ipcMain.handle('update:install', () => { quitting = true; autoUpdater?.quitAndIn
 
 app.on('second-instance', showWin);
 app.whenReady().then(() => {
+  // Permite el micrófono para hablarle al asistente
+  const { session } = require('electron');
+  session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(['media', 'notifications', 'clipboard-sanitized-write'].includes(permission)));
+  session.defaultSession.setPermissionCheckHandler((_wc, permission) => ['media', 'notifications', 'clipboard-sanitized-write'].includes(permission));
   try {
     const d = JSON.parse(fs.readFileSync(dataFile, 'utf8'));
     closeToTray = d.settings?.closeToTray !== false;

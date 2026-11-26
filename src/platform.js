@@ -196,6 +196,26 @@ export async function httpRequest({ method = 'GET', url, headers = {}, body = nu
   return { status: r.status, text: await r.text() };
 }
 
+/** Envío de un archivo con formulario multipart (para transcribir audio) */
+export async function httpMultipart({ url, headers = {}, fields = {}, file }) {
+  if (isWindows) {
+    const r = await native.multipart({ url, headers, fields, file });
+    if (r.error) throw new Error('Sin conexión (' + r.error + ')');
+    return r;
+  }
+  if (isAndroid) {
+    const data = [{ key: file.field, value: file.b64, type: 'base64File', contentType: file.mime, fileName: file.name }, ...Object.entries(fields).map(([key, value]) => ({ key, value: String(value), type: 'string' }))];
+    const r = await CapacitorHttp.request({ method: 'POST', url, headers, data, dataType: 'formData', responseType: 'text', connectTimeout: 30000, readTimeout: 120000 });
+    return { status: r.status, text: typeof r.data === 'string' ? r.data : JSON.stringify(r.data) };
+  }
+  const fd = new FormData();
+  const bin = Uint8Array.from(atob(file.b64), (c) => c.charCodeAt(0));
+  fd.append(file.field, new Blob([bin], { type: file.mime }), file.name);
+  for (const [k, v] of Object.entries(fields)) fd.append(k, String(v));
+  const r = await fetch(url, { method: 'POST', headers, body: fd });
+  return { status: r.status, text: await r.text() };
+}
+
 export async function attachmentExists(meta) {
   try {
     if (isWindows) return await native.fileExists(meta.id);

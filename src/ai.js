@@ -12,12 +12,34 @@ export const PROVIDERS = {
 };
 
 const LS = 'organizador-ia';
-export function aiConfig() {
+/** Configuración guardada solo en este dispositivo */
+export function localAiConfig() {
   let c = {};
   try { c = JSON.parse(localStorage.getItem(LS) || '{}'); } catch { /* */ }
-  return { provider: c.provider || 'groq', keys: c.keys || {}, models: c.models || {}, lists: c.lists || {} };
+  return { provider: c.provider || '', keys: c.keys || {}, models: c.models || {}, lists: c.lists || {} };
 }
-export function saveAiConfig(c) { try { localStorage.setItem(LS, JSON.stringify(c)); } catch { /* */ } }
+/** Configuración efectiva: lo local manda; lo compartido (sincronizado por Drive) completa lo que falte */
+export function aiConfig() {
+  const c = localAiConfig();
+  const sh = state.settings.aiShared || null;
+  const provider = c.provider || sh?.provider || 'groq';
+  return { provider, keys: { ...(sh?.keys || {}), ...c.keys }, models: { ...(sh?.models || {}), ...c.models }, lists: c.lists, shared: !!sh?.keys?.[provider] };
+}
+export function saveAiConfig(c) {
+  const { shared, ...rest } = c;
+  void shared;
+  try { localStorage.setItem(LS, JSON.stringify(rest)); } catch { /* */ }
+}
+/** Copia (o quita) la clave en los ajustes que se sincronizan con los otros dispositivos */
+export function setAiShared(on) {
+  const c = aiConfig();
+  if (on) state.settings.aiShared = { provider: c.provider, keys: { ...(state.settings.aiShared?.keys || {}), [c.provider]: c.keys[c.provider] }, models: { ...(state.settings.aiShared?.models || {}), [c.provider]: c.models[c.provider] } };
+  else if (state.settings.aiShared) {
+    const keys = { ...state.settings.aiShared.keys };
+    delete keys[c.provider];
+    state.settings.aiShared = Object.keys(keys).length ? { ...state.settings.aiShared, keys } : null;
+  }
+}
 export const aiReady = () => { const c = aiConfig(); return !!c.keys[c.provider]; };
 const modelOf = (c) => c.models[c.provider] || PROVIDERS[c.provider].model;
 
@@ -72,7 +94,7 @@ export async function complete(opts) {
     for (const m of rankModels(cfg.provider, list).filter((x) => x !== first).slice(0, 6)) {
       try {
         const out = await completeWith({ ...opts, cfg }, m);
-        const c = aiConfig();
+        const c = localAiConfig();
         c.models[cfg.provider] = m;
         c.lists[cfg.provider] = list;
         saveAiConfig(c);
