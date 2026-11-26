@@ -68,12 +68,21 @@ export function openModal({ title, body = '', foot = '', wide = false, onMount }
 }
 export const hasModal = () => modalStack > 0;
 
+export function checksInner(name, options, sel = new Set()) {
+  if (!options.length) return '<span class="small muted">No hay opciones todavía.</span>';
+  return options.map((o) => `<label class="checkline"><input type="checkbox" name="${esc(name)}" value="${esc(o.v)}" ${sel.has(String(o.v)) ? 'checked' : ''}> ${esc(o.l)}</label>`).join('');
+}
+
 function fieldHtml(f) {
   const id = 'f_' + f.name;
   const v = f.value ?? '';
   const req = f.required ? 'required' : '';
   const cls = f.full || f.type === 'textarea' ? 'field full' : 'field';
   if (f.type === 'checkbox') return `<div class="${cls} full"><label class="checkline"><input type="checkbox" id="${id}" name="${f.name}" ${v ? 'checked' : ''}> ${esc(f.label)}</label>${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
+  if (f.type === 'checks') {
+    const sel = new Set((v || []).map(String));
+    return `<div class="field full"><label>${esc(f.label)}</label><div class="checks" id="${id}" data-checks="${f.name}">${checksInner(f.name, f.options || [], sel)}</div>${f.hint ? `<div class="hint">${esc(f.hint)}</div>` : ''}</div>`;
+  }
   if (f.type === 'section') return `<div class="full" style="margin-top:4px"><h3>${esc(f.label)}</h3>${f.hint ? `<div class="hint small muted">${esc(f.hint)}</div>` : ''}</div>`;
   let input;
   if (f.type === 'select') {
@@ -106,6 +115,7 @@ export function formModal({ title, fields, submitLabel = 'Guardar', deleteLabel,
       const out = {};
       for (const f of fields) {
         if (!f.name || f.type === 'section') continue;
+        if (f.type === 'checks') { out[f.name] = [...form.querySelectorAll(`input[name="${f.name}"]:checked`)].map((x) => x.value); continue; }
         const el = form.elements[f.name];
         if (!el) continue;
         if (f.type === 'checkbox') out[f.name] = el.checked;

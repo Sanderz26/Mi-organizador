@@ -9,6 +9,7 @@ import { chart, destroyCharts } from '../charts.js';
 import { sound } from '../sound.js';
 import { taskDialog, toggleTask } from './tasks.js';
 import { notesBlock, bindNotesBlock } from './notes.js';
+import { examDialog, allExams, examRow, subjectAverage, daysUntil } from './exams.js';
 
 const STATUS = { pendiente: { l: 'Pendiente', c: '' }, curso: { l: 'En curso', c: 'warn' }, dominado: { l: 'Dominado', c: 'ok' } };
 const DAY_ALIASES = { do: 0, lu: 1, ma: 2, mi: 3, ju: 4, vi: 5, sa: 6 };
@@ -334,6 +335,11 @@ function renderSubject(el, s) {
       <div class="chart" style="margin-top:10px"><canvas data-effchart></canvas></div>
       <div class="list" style="margin-top:10px">${exs.filter((x) => (x.topicId || '') === effTopic).sort((a, b) => b.ts - a.ts).slice(0, 30).map((x) => `<div class="row click" data-exe="${esc(x.id)}"><span class="time" style="width:64px">${esc(fmtDate(x.date))}</span><div class="grow">${['', 'Fácil', 'Media', 'Difícil'][x.difficulty] || ''}</div><span class="pill ${x.correct ? 'ok' : 'bad'}">${x.correct ? 'Bien' : 'Error'}</span><span class="num" style="width:60px;text-align:right">${fmtSec(x.seconds)}</span></div>`).join('')}</div>`
       : emptyState('stopwatch', 'Mide cuánto tardas en cada ejercicio y verás cómo mejoras con la práctica.', `<button class="btn primary" data-extimer>${icon('stopwatch', 16)} Cronómetro de ejercicios</button>`);
+  } else if (tab === 'examenes') {
+    const exs2 = allExams().filter((x) => x.subjectId === s.id);
+    const up = exs2.filter((x) => daysUntil(x.date) >= 0), past = exs2.filter((x) => daysUntil(x.date) < 0).reverse();
+    body = exs2.length ? `${up.length ? `<h3 style="margin:4px 0 4px">Próximos</h3><div class="list">${up.map((x) => examRow(x, false)).join('')}</div>` : ''}${past.length ? `<h3 style="margin:14px 0 4px">Anteriores</h3><div class="list">${past.map((x) => examRow(x, false)).join('')}</div>` : ''}`
+      : emptyState('school', 'Agrega tus parciales y quices con los temas que entran. Te aviso con tiempo y tu nota suma XP.', `<button class="btn primary" data-newexam>${icon('plus', 16)} Examen</button>`);
   } else if (tab === 'tareas') {
     body = tasks.length ? `<div class="list">${tasks.map((t) => `<div class="row ${t.done ? 'done' : ''}"><button class="chk ${t.done ? 'on' : ''}" data-toggle="${esc(t.id)}">${icon('check', 14)}</button><div class="grow" data-edittask="${esc(t.id)}" style="cursor:pointer"><div class="title">${esc(t.title)}</div><div class="meta">${t.due ? esc(fmtDate(t.due)) + (t.dueTime ? ' · ' + esc(t.dueTime) : '') : 'Sin fecha'}</div></div></div>`).join('')}</div>` : emptyState('checklist', 'Sin tareas en esta materia.');
   } else {
@@ -349,14 +355,15 @@ function renderSubject(el, s) {
         <div class="kv"><span class="muted">Total estudiado</span><span>${fmtMin(total)}</span></div>
         <div class="kv"><span class="muted">Racha</span><span>${studyStreak(s.id)} ${studyStreak(s.id) === 1 ? 'día' : 'días'}</span></div>
         <div class="kv"><span class="muted">Ejercicios</span><span>${exs.length}</span></div>
+        ${(() => { const av = subjectAverage(s.id); return av ? `<div class="kv"><span class="muted">Promedio${av.weighted ? ` (${av.covered}% evaluado)` : ''}</span><span class="${av.value >= 3 ? 'up' : 'down'}">${av.value.toFixed(2)}</span></div>` : ''; })()}
         <div class="kv"><span class="muted">Acierto</span><span>${exs.length ? Math.round((exs.filter((x) => x.correct).length / exs.length) * 100) + '%' : '—'}</span></div>
         ${(s.schedule || []).length ? `<div style="margin-top:10px" class="small">${s.schedule.map((c) => `<div class="muted">${DAYS[c.day]} ${esc(c.start)}–${esc(c.end)}${c.room ? ' · ' + esc(c.room) : ''}</div>`).join('')}</div>` : ''}
       </div>
       <div class="split"><button class="btn sm" data-bonus>${icon('plus', 14)} XP</button><button class="btn sm danger" data-fail>${icon('minus', 14)} Registrar fallo</button></div>
     </div>
     <div class="card">
-      <div class="card-head" style="flex-wrap:wrap"><div class="tabs">${[['temas', 'Temas'], ['sesiones', 'Sesiones'], ['eficiencia', 'Eficiencia'], ['tareas', 'Tareas'], ['apuntes', 'Apuntes']].map(([k, l]) => `<button class="tab ${tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
-        <div class="head-actions">${tab === 'temas' ? `<button class="btn sm" data-newtopic>${icon('plus', 14)} Tema</button>` : tab === 'sesiones' ? `<button class="btn sm" data-newses>${icon('plus', 14)} Sesión</button>` : tab === 'eficiencia' ? `<button class="btn sm" data-newex>${icon('plus', 14)} Manual</button>` : tab === 'tareas' ? `<button class="btn sm" data-newtask>${icon('plus', 14)} Tarea</button>` : ''}</div></div>
+      <div class="card-head" style="flex-wrap:wrap"><div class="tabs">${[['temas', 'Temas'], ['examenes', 'Exámenes'], ['sesiones', 'Sesiones'], ['eficiencia', 'Eficiencia'], ['tareas', 'Tareas'], ['apuntes', 'Apuntes']].map(([k, l]) => `<button class="tab ${tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>
+        <div class="head-actions">${tab === 'temas' ? `<button class="btn sm" data-newtopic>${icon('plus', 14)} Tema</button>` : tab === 'sesiones' ? `<button class="btn sm" data-newses>${icon('plus', 14)} Sesión</button>` : tab === 'eficiencia' ? `<button class="btn sm" data-newex>${icon('plus', 14)} Manual</button>` : tab === 'tareas' ? `<button class="btn sm" data-newtask>${icon('plus', 14)} Tarea</button>` : tab === 'examenes' ? `<button class="btn sm" data-newexam>${icon('plus', 14)} Examen</button>` : ''}</div></div>
       ${body}
     </div>
   </div>`;
@@ -376,7 +383,7 @@ function renderSubject(el, s) {
   if (tab === 'apuntes') bindNotesBlock(el, s.id);
 
   el.onclick = (e) => {
-    const t = e.target.closest('button,[data-topic],[data-ses],[data-exe],[data-edittask]');
+    const t = e.target.closest('button,[data-topic],[data-ses],[data-exe],[data-edittask],[data-exam]');
     if (!t) return;
     const d = t.dataset;
     if ('back' in d) window.go('estudio');
@@ -389,6 +396,8 @@ function renderSubject(el, s) {
     else if ('newtopic' in d) topicDialog(s.id);
     else if ('newses' in d) sessionDialog(s.id);
     else if ('newex' in d) exerciseManual(s.id);
+    else if ('newexam' in d) examDialog(null, { subjectId: s.id });
+    else if (d.exam) { const [k, id] = d.exam.split(':'); if (k === 'exam') examDialog(find('events', id)); else topicDialog(s.id, find('topics', id)); }
     else if ('newtask' in d) taskDialog(null, { subjectId: s.id, category: 'estudio' });
     else if (d.cycle) { const tp = find('topics', d.cycle); const order = ['pendiente', 'curso', 'dominado']; tp.status = order[(order.indexOf(tp.status || 'pendiente') + 1) % 3]; if (tp.status === 'dominado') sound('complete'); commit(); }
     else if (d.topic) topicDialog(s.id, find('topics', d.topic));

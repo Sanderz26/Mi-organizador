@@ -21,9 +21,11 @@ import * as business from './views/business.js';
 import * as progress from './views/progress.js';
 import * as notes from './views/notes.js';
 import * as settings from './views/settings.js';
+import * as assistant from './views/assistant.js';
 
 const ROUTES = {
   inicio: { label: 'Inicio', icon: 'home', view: home },
+  asistente: { label: 'Asistente', icon: 'sparkles', view: assistant },
   calendario: { label: 'Calendario', icon: 'calendar', view: calendar },
   tareas: { label: 'Tareas', icon: 'checklist', view: tasks },
   estudio: { label: 'Estudio', icon: 'book', view: study },
@@ -34,7 +36,7 @@ const ROUTES = {
   notas: { label: 'Notas', icon: 'notes', view: notes },
   ajustes: { label: 'Ajustes', icon: 'settings', view: settings },
 };
-const SIDE = ['inicio', 'calendario', 'tareas', 'estudio', 'gimnasio', 'dieta', 'negocio', 'progreso', 'notas'];
+const SIDE = ['inicio', 'asistente', 'calendario', 'tareas', 'estudio', 'gimnasio', 'dieta', 'negocio', 'progreso', 'notas'];
 const BOTTOM = ['inicio', 'calendario', 'tareas', 'estudio'];
 
 const app = document.getElementById('app');
@@ -63,6 +65,7 @@ function shell() {
       <div id="timerbar"></div>
       <div id="view" class="view"></div>
     </main>
+    <button class="fab" data-route="asistente" aria-label="Asistente">${icon('sparkles', 24)}</button>
     <nav class="bottomnav" aria-label="Menú">
       ${BOTTOM.map((r) => navItem(r)).join('')}
       <button class="nav-item" data-search>${icon('search', 20)}<span>Buscar</span></button>
@@ -89,6 +92,7 @@ function render() {
   const keepScroll = current === route + params.join('/') ? main.scrollTop : 0;
   current = route + params.join('/');
   app.querySelectorAll('[data-route]').forEach((el) => el.classList.toggle('active', el.dataset.route === route));
+  app.querySelector('.fab')?.classList.toggle('hidden', route === 'asistente');
   destroyCharts();
   const view = document.getElementById('view');
   view.onclick = null; view.onchange = null; view.oninput = null;

@@ -8,6 +8,7 @@ import { sound } from '../sound.js';
 import { currentWeight, bmiInfo, energy, goalProgress, ACTIVITY, GOALS } from '../health.js';
 import { upsert } from '../store.js';
 import { syncCardHtml, bindSyncCard } from './syncui.js';
+import { aiCardHtml, bindAiCard } from './aiui.js';
 import { checkForUpdates, installUpdate, updateStatus, APP_VERSION } from '../updates.js';
 
 const H = (hint) => (hint ? `<div class="hint">${esc(hint)}</div>` : '');
@@ -53,6 +54,7 @@ export function render(el) {
   el.innerHTML = `
   <div class="page-head"><div><div class="sub">Versión ${__APP_VERSION__} · ${platformName === 'windows' ? 'Windows' : platformName === 'android' ? 'Android' : 'Navegador'}</div><h1>Ajustes</h1></div></div>
   ${syncCardHtml()}
+  ${aiCardHtml()}
   <div class="grid g2">
     <div class="card"><div class="card-head"><h2>${icon('user', 18)} Perfil y apariencia</h2></div><div class="form-grid">
       ${F('name', '¿Cómo te llamo?', 'text', '', 'Aparece en el saludo de Inicio.')}
@@ -107,6 +109,7 @@ export function render(el) {
   </div>`;
 
   bindSyncCard(el);
+  bindAiCard(el, () => render(el));
   el.onchange = (e) => {
     if (e.target.matches('[data-weight]')) {
       const kg = Number(e.target.value);

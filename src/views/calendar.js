@@ -7,18 +7,20 @@ import { holidaysFor } from '../holidays.js';
 import { REMINDER_OPTIONS, parseReminder } from '../components.js';
 import { taskDialog } from './tasks.js';
 import { sound } from '../sound.js';
+import { examDialog } from './exams.js';
 
 let cursor = new Date();
 let selected = todayKey();
 
 export async function eventDialog(ev = null, preset = {}) {
+  if ((ev?.type || preset.type) === 'examen') return examDialog(ev, preset);
   const e = ev || { type: 'evento', date: selected, reminderMins: state.settings.defaultReminderMins, repeat: '', ...preset };
   const isBday = (e.type || preset.type) === 'cumpleanos';
   const v = await formModal({
     title: ev ? 'Editar' : isBday ? 'Nuevo cumpleaños' : 'Nuevo evento',
     deleteLabel: ev ? 'Eliminar' : null,
     fields: [
-      { name: 'type', label: 'Tipo', type: 'select', value: e.type, options: Object.entries(EVENT_TYPES).map(([v, t]) => ({ v, l: t.label })) },
+      { name: 'type', label: 'Tipo', type: 'select', value: e.type, options: Object.entries(EVENT_TYPES).filter(([v]) => v !== 'examen').map(([v, t]) => ({ v, l: t.label })) },
       { name: 'title', label: isBday ? 'Nombre de la persona' : 'Título', type: 'text', value: e.title, required: true, placeholder: isBday ? 'Mamá' : 'Reunión con el grupo de proyecto' },
       { name: 'date', label: 'Fecha', type: 'date', value: e.date, required: true },
       { name: 'time', label: 'Hora (opcional)', type: 'time', value: e.time || '' },
@@ -88,6 +90,7 @@ export function render(el) {
           <div class="grow"><div class="title">${esc(a.title)}</div>${a.sub ? `<div class="meta">${esc(a.sub)}${a.end ? ' · hasta ' + esc(a.end) : ''}</div>` : ''}</div></div>`).join('')}</div>` : emptyState('calendar-event', 'Día libre.')}
         <div class="split" style="margin-top:12px">
           <button class="btn sm" data-newev>${icon('calendar-event', 15)} Evento</button>
+          <button class="btn sm" data-newx>${icon('school', 15)} Examen</button>
           <button class="btn sm" data-newb>${icon('cake', 15)} Cumpleaños</button>
           <button class="btn sm" data-newt>${icon('checklist', 15)} Tarea</button>
         </div>
@@ -104,7 +107,7 @@ export function render(el) {
   </div>`;
 
   el.onclick = (e) => {
-    const t = e.target.closest('[data-day],[data-nav],[data-newev],[data-newb],[data-newt],[data-ev],[data-task]');
+    const t = e.target.closest('[data-day],[data-nav],[data-newev],[data-newb],[data-newx],[data-newt],[data-ev],[data-task]');
     if (!t) return;
     if (t.dataset.day) { selected = t.dataset.day; const d = parseKey(selected); if (d.getMonth() !== cursor.getMonth()) cursor = new Date(d.getFullYear(), d.getMonth(), 1); render(el); }
     else if (t.dataset.nav !== undefined) {
@@ -113,6 +116,7 @@ export function render(el) {
       render(el);
     } else if ('newev' in t.dataset) eventDialog(null, { date: selected });
     else if ('newb' in t.dataset) eventDialog(null, { date: selected, type: 'cumpleanos', reminderMins: 1440 });
+    else if ('newx' in t.dataset) examDialog(null, { date: selected });
     else if ('newt' in t.dataset) taskDialog(null, { due: selected });
     else if (t.dataset.ev) eventDialog(find('events', t.dataset.ev));
     else if (t.dataset.task) taskDialog(find('tasks', t.dataset.task));

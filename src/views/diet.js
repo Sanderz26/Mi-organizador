@@ -6,6 +6,7 @@ import { levelCard, failDialog, bonusDialog } from '../components.js';
 import { award, removeRef, RULES, dietStreak, dietBest } from '../xp.js';
 import { chart, destroyCharts } from '../charts.js';
 import { sound } from '../sound.js';
+import { aiReady, estimateMeal } from '../ai.js';
 
 const TYPES = ['Desayuno', 'Media mañana', 'Almuerzo', 'Algo', 'Cena', 'Snack'];
 let day = todayKey();
@@ -37,7 +38,7 @@ export async function mealDialog(meal = null, preset = {}) {
       { name: 'protein', label: 'Proteína (g, opcional)', type: 'number', value: meal?.protein ?? '', min: 0, step: 1 },
       { name: 'time', label: 'Hora', type: 'time', value: meal?.time || '' },
     ],
-    extraHtml: !meal && frequentFoods().length ? `<div><div class="small muted" style="margin-bottom:6px">Frecuentes (toca para llenar):</div><div class="split" data-freq>${frequentFoods().slice(0, 8).map((f, i) => `<button class="btn sm" type="button" data-fi="${i}">${esc(f.desc)} · ${f.kcal} kcal</button>`).join('')}</div></div>` : '',
+    extraHtml: (aiReady() ? `<div class="split"><button class="btn sm" type="button" data-aiest>${icon('sparkles', 15)} Estimar calorías con IA</button><span class="small muted" data-aiestmsg>Escribe qué comiste y toca el botón.</span></div>` : '') + (!meal && frequentFoods().length ? `<div><div class="small muted" style="margin-bottom:6px">Frecuentes (toca para llenar):</div><div class="split" data-freq>${frequentFoods().slice(0, 8).map((f, i) => `<button class="btn sm" type="button" data-fi="${i}">${esc(f.desc)} · ${f.kcal} kcal</button>`).join('')}</div></div>` : ''),
   });
   if (!v) return;
   if (v._action === 'delete') { remove('meals', meal.id); sound('delete'); commit(); return; }
@@ -45,6 +46,25 @@ export async function mealDialog(meal = null, preset = {}) {
   sound('complete');
   commit();
 }
+// Estimación con IA
+document.addEventListener('click', async (e) => {
+  const b = e.target.closest('[data-aiest]');
+  if (!b) return;
+  const form = b.closest('.modal').querySelector('form');
+  const msg = b.closest('.modal').querySelector('[data-aiestmsg]');
+  const desc = form.elements.desc.value.trim();
+  if (!desc) { msg.textContent = 'Primero escribe qué comiste.'; sound('error'); return; }
+  b.disabled = true; msg.textContent = 'Calculando…';
+  try {
+    const r = await estimateMeal(desc);
+    form.elements.kcal.value = r.kcal;
+    form.elements.protein.value = r.protein;
+    msg.textContent = r.note ? 'Estimado: ' + r.note : 'Estimado. Ajusta si hace falta.';
+    sound('xp');
+  } catch (err) { msg.textContent = err.message; sound('error'); }
+  b.disabled = false;
+});
+
 // Rellena con comidas frecuentes
 document.addEventListener('click', (e) => {
   const b = e.target.closest('[data-fi]');

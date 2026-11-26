@@ -1,5 +1,5 @@
 // Agenda unificada: eventos, cumpleaños, clases, tareas, gimnasio y festivos
-import { state, subjectRunsOn } from './store.js';
+import { state, subjectRunsOn, subjectName } from './store.js';
 import { holidayMap } from './holidays.js';
 import { parseKey, toKey, addDays, dateTime } from './util.js';
 
@@ -38,7 +38,8 @@ export function agendaFor(key, { includeClasses = true } = {}) {
       const age = ev.birthYear ? d.getFullYear() - Number(ev.birthYear) : null;
       title = `Cumpleaños de ${ev.title}${age && age > 0 ? ` (${age})` : ''}`;
     }
-    items.push({ kind: 'event', id: ev.id, title, short: ev.type === 'cumpleanos' ? ev.title : title, time: ev.time || '', end: ev.endTime || '', color: t.color, icon: t.icon, sub: ev.place || t.label, ref: ev });
+    if (ev.type === 'examen') title = `Examen · ${ev.title}`;
+    items.push({ kind: 'event', id: ev.id, title, short: ev.type === 'cumpleanos' ? ev.title : title, time: ev.time || '', end: ev.endTime || '', color: t.color, icon: t.icon, sub: ev.type === 'examen' ? [subjectName(ev.subjectId), ev.place].filter(Boolean).join(' · ') : ev.place || t.label, ref: ev });
   }
   if (includeClasses && !hol) {
     for (const s of state.subjects) {
@@ -47,6 +48,9 @@ export function agendaFor(key, { includeClasses = true } = {}) {
         if (Number(c.day) === d.getDay()) items.push({ kind: 'class', id: s.id, title: `Clase · ${s.name}`, short: s.name, time: c.start, end: c.end, color: s.color, icon: 'school', sub: c.room || '' });
       }
     }
+  }
+  for (const tp of state.topics) {
+    if (tp.examDate === key) items.push({ kind: 'topicexam', id: tp.id, title: `Examen: ${tp.name}`, short: `Examen: ${tp.name}`, time: '', color: 'var(--bad)', icon: 'school', sub: subjectName(tp.subjectId) });
   }
   for (const t of state.tasks) {
     if (t.due === key) items.push({ kind: 'task', id: t.id, title: t.title, time: t.dueTime || '', color: t.done ? 'var(--ink-3)' : 'var(--accent)', icon: 'checklist', done: t.done, sub: t.done ? 'Completada' : 'Tarea', ref: t });
@@ -67,6 +71,11 @@ export function upcomingReminders(days = 45) {
     const at = dateTime(t.due, t.dueTime || '08:00').getTime() - t.reminderMins * 60000;
     out.push({ key: 'task:' + t.id + ':' + at, at, title: t.title, body: t.dueTime ? `Tarea para las ${t.dueTime}` : 'Tarea para hoy' });
   }
+  for (const tp of state.topics) {
+    if (!tp.examDate) continue;
+    const at = dateTime(tp.examDate, '08:00').getTime() - 24 * 3600e3;
+    out.push({ key: 'tex:' + tp.id + ':' + tp.examDate, at, title: `Mañana: examen de ${tp.name}`, body: subjectName(tp.subjectId) });
+  }
   for (let i = 0; i < days; i++) {
     const key = toKey(addDays(now, i));
     const hol = holidayMap(Number(key.slice(0, 4)))[key];
@@ -75,7 +84,7 @@ export function upcomingReminders(days = 45) {
       if (!occursOn(ev, key) || ev.reminderMins === null || ev.reminderMins === undefined || ev.reminderMins < 0) continue;
       const base = dateTime(key, ev.time || '08:00').getTime();
       const t = EVENT_TYPES[ev.type] || EVENT_TYPES.evento;
-      const title = ev.type === 'cumpleanos' ? `Cumpleaños de ${ev.title}` : ev.title;
+      const title = ev.type === 'cumpleanos' ? `Cumpleaños de ${ev.title}` : ev.type === 'examen' ? `Examen: ${ev.title}` : ev.title;
       out.push({ key: 'ev:' + ev.id + ':' + key, at: base - ev.reminderMins * 60000, title, body: `${t.label}${ev.time ? ' · ' + ev.time : ''}${ev.place ? ' · ' + ev.place : ''}` });
     }
     if (s.classReminderMins > 0 && !hol && i < 14) {

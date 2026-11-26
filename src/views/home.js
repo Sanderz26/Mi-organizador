@@ -9,6 +9,9 @@ import { toggleTask, taskDialog } from './tasks.js';
 import { startDialog } from './study.js';
 import { mealDialog } from './diet.js';
 import { monthSummary } from './business.js';
+import { upcomingExams, examRow, examDialog } from './exams.js';
+import { find } from '../store.js';
+import { topicDialog } from './study.js';
 
 function greeting() {
   const h = new Date().getHours();
@@ -64,12 +67,16 @@ export function render(el) {
     </div>
   </div>
 
+  ${(() => { const ex = upcomingExams(30).slice(0, 4); return ex.length ? `<div class="card"><div class="card-head"><h2>${icon('school', 18)} Próximos exámenes</h2><button class="btn ghost sm" data-go="calendario">Calendario</button></div><div class="list">${ex.map((x) => examRow(x)).join('')}</div></div>` : ''; })()}
+
   <div class="card">
     <div class="card-head"><h2>${icon('checklist', 18)} Tareas pendientes</h2><div class="head-actions"><button class="btn sm" data-addtask>${icon('plus', 15)} Tarea</button><button class="btn ghost sm" data-go="tareas">Ver todas</button></div></div>
     ${pending.length ? `<div class="list">${pending.map((t) => `<div class="row"><button class="chk" data-toggle="${esc(t.id)}" aria-label="Completar">${icon('check', 14)}</button><div class="grow"><div class="title">${esc(t.title)}</div><div class="meta">${t.due ? `<span class="${t.due < today ? 'down' : ''}">${esc(relDay(t.due))}${t.dueTime ? ' · ' + esc(t.dueTime) : ''}</span>` : '<span>Sin fecha</span>'}${t.subjectId ? `<span>${esc(state.subjects.find((x) => x.id === t.subjectId)?.name || '')}</span>` : ''}</div></div></div>`).join('')}</div>` : emptyState('circle-check', 'Sin tareas pendientes. Buen trabajo.')}
   </div>`;
 
   el.onclick = (e) => {
+    const r = e.target.closest('[data-exam]');
+    if (r) { const [k, id] = r.dataset.exam.split(':'); if (k === 'exam') examDialog(find('events', id)); else { const tp = find('topics', id); if (tp) topicDialog(tp.subjectId, tp); } return; }
     const b = e.target.closest('button');
     if (!b) return;
     if (b.dataset.go) window.go(b.dataset.go);
