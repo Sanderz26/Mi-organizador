@@ -6,6 +6,7 @@ import { destroyCharts } from './charts.js';
 import { timerElapsed, timerLabel, togglePause, stopTimer } from './timer.js';
 import { startReminderLoop, refreshReminders } from './notify.js';
 import { startPrinterLoop } from './printer.js';
+import { openFace } from './face.js';
 import { syncHolidaysOnline } from './holidays.js';
 import { onAppPause, onBackButton, exitApp } from './platform.js';
 import { startUpdates } from './updates.js';
@@ -91,9 +92,10 @@ function openMore() {
 }
 
 /** Al decir "Aries": trae la app al frente, abre el asistente y empieza a escuchar */
-export function onAries() {
+export function onAries(o = {}) {
   sound('start');
   window.native?.showWindow?.();
+  openFace({ locked: !!o.locked, onUnlock: o.onUnlock, onClose: o.onClose });
   requestVoiceStart();
   if (parseHash().route === 'asistente') render(); else go('asistente');
 }

@@ -160,6 +160,36 @@ function pickVoice() {
   return es.sort((a, b) => (pref.indexOf(a.lang) + 99) % 99 - (pref.indexOf(b.lang) + 99) % 99 || (/natural|online|neural/i.test(b.name) ? 1 : 0) - (/natural|online|neural/i.test(a.name) ? 1 : 0))[0] || null;
 }
 
+// Nivel de la voz para mover la boca de la carita (0 a 1)
+let actx = null, analyser = null, abuf = null, realLevel = false;
+function tapAudio(a) {
+  realLevel = false;
+  try {
+    actx ||= new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state !== 'running') { actx.resume().catch(() => {}); if (actx.state !== 'running') return; } // sin contexto activo se deja sonar directo
+    const src = actx.createMediaElementSource(a);
+    analyser = actx.createAnalyser();
+    analyser.fftSize = 512;
+    abuf = new Uint8Array(analyser.fftSize);
+    src.connect(analyser);
+    analyser.connect(actx.destination);
+    realLevel = true;
+  } catch { realLevel = false; }
+}
+/** Qué tan fuerte suena la voz en este instante (real con Azure; aproximado con la voz del sistema) */
+export function speechLevel() {
+  if (!speaking) return 0;
+  if (realLevel && analyser && audio) {
+    analyser.getByteTimeDomainData(abuf);
+    let sum = 0;
+    for (const v of abuf) sum += (v - 128) * (v - 128);
+    return Math.min(1, Math.sqrt(sum / abuf.length) / 28);
+  }
+  const t = performance.now() / 1000;
+  const syll = Math.abs(Math.sin(t * 11)) * (0.55 + 0.45 * Math.sin(t * 2.3)); // sílabas aproximadas
+  return Math.max(0, Math.min(1, 0.15 + syll * 0.75));
+}
+
 let audio = null;
 let gen = 0; // cada lectura nueva invalida las anteriores
 let azureWarned = false;
@@ -177,6 +207,7 @@ async function speakAzure(t, pref, finish, opts) {
   if (my !== gen) { finish(); return true; } // se canceló mientras llegaba el audio
   const a = new Audio('data:audio/mpeg;base64,' + b64);
   audio = a;
+  tapAudio(a);
   const done = () => { if (audio === a) audio = null; finish(); };
   a.onended = done;
   a.onerror = done;
