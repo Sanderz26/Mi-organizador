@@ -209,6 +209,7 @@ input[type=color] { width: 100%; height: 40px; border: 1px solid var(--line-2); 
 .checks { display: flex; flex-direction: column; gap: 8px; max-height: 190px; overflow-y: auto; padding: 10px 12px; border: 1px solid var(--line-2); border-radius: 9px; }
 .checkline { display: flex; align-items: center; gap: 9px; cursor: pointer; font-size: 14.5px; }
 .checkline input { width: 18px; height: 18px; accent-color: var(--accent); }
+[hidden] { display: none !important; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 14px; }
 .form-grid .full { grid-column: 1 / -1; }
 .err { color: var(--bad); font-size: 12.5px; }

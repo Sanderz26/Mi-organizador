@@ -3,6 +3,8 @@ import { SpeechRecognition } from '@capacitor-community/speech-recognition';
 import { TextToSpeech } from '@capacitor-community/text-to-speech';
 import { isAndroid, httpMultipart } from './platform.js';
 import { aiConfig } from './ai.js';
+import { azureReady, synthesize } from './azuretts.js';
+import { toast } from './util.js';
 
 const groqKey = () => aiConfig().keys.groq || '';
 let nativeOk = null;
@@ -98,7 +100,9 @@ export async function listen({ onLevel, onStopped } = {}) {
 
 // ---------- Lectura en voz alta ----------
 const PREF = 'organizador-voz';
-export function voicePrefs() { try { return { name: '', rate: 1, ...JSON.parse(localStorage.getItem(PREF) || '{}') }; } catch { return { name: '', rate: 1 }; } }
+export function voicePrefs() { try { return { name: '', rate: 1, engine: '', ...JSON.parse(localStorage.getItem(PREF) || '{}') }; } catch { return { name: '', rate: 1, engine: '' }; } }
+/** 'azure' si hay clave de Azure y no se eligió la voz del dispositivo */
+export function voiceEngine() { const e = voicePrefs().engine; return e === 'sistema' ? 'sistema' : azureReady() ? 'azure' : 'sistema'; }
 export function setVoicePrefs(p) { try { localStorage.setItem(PREF, JSON.stringify({ ...voicePrefs(), ...p })); } catch { /* */ } }
 
 /** Voces disponibles en este dispositivo: las de español primero */
@@ -131,13 +135,48 @@ function pickVoice() {
   return es.sort((a, b) => (pref.indexOf(a.lang) + 99) % 99 - (pref.indexOf(b.lang) + 99) % 99 || (/natural|online|neural/i.test(b.name) ? 1 : 0) - (/natural|online|neural/i.test(a.name) ? 1 : 0))[0] || null;
 }
 
-export async function speak(text, onEnd) {
+let audio = null;
+let gen = 0; // cada lectura nueva invalida las anteriores
+let azureWarned = false;
+
+/** Lee con Azure. Devuelve false si no se pudo (para usar la voz del dispositivo). */
+async function speakAzure(t, pref, finish, opts) {
+  const my = gen;
+  let b64;
+  try { b64 = await synthesize(t, { rate: pref.rate || 1, voice: opts.azureVoice }); }
+  catch (e) {
+    if (opts.strict) throw e;
+    if (!azureWarned) { azureWarned = true; toast('Voz de Azure no disponible: ' + e.message + ' Uso la voz del dispositivo.', { ms: 6000 }); }
+    return false;
+  }
+  if (my !== gen) { finish(); return true; } // se canceló mientras llegaba el audio
+  const a = new Audio('data:audio/mpeg;base64,' + b64);
+  audio = a;
+  const done = () => { if (audio === a) audio = null; finish(); };
+  a.onended = done;
+  a.onerror = done;
+  try { await a.play(); } catch { done(); }
+  return true;
+}
+
+/**
+ * Lee un texto en voz alta. onEnd se llama al terminar.
+ * opts.azureVoice: probar una voz de Azure concreta; opts.strict: lanzar el error en vez de cambiar de voz.
+ */
+export async function speak(text, onEnd, opts = {}) {
   const t = clean(text);
   if (!t) return;
   await stopSpeaking();
+  const myGen = gen;
   speaking = true;
-  const finish = () => { speaking = false; onEnd?.(); };
+  let ended = false;
+  const finish = () => { if (ended) return; ended = true; if (myGen === gen) speaking = false; onEnd?.(); };
   const pref = voicePrefs();
+  if (opts.azureVoice || voiceEngine() === 'azure') {
+    try { if (await speakAzure(t, pref, finish, opts)) return; }
+    catch (e) { finish(); throw e; }
+    if (myGen !== gen) return;
+  }
   if (isAndroid) {
     let voice;
     if (pref.name) { try { const vs = (await TextToSpeech.getSupportedVoices()).voices || []; const i = vs.findIndex((v) => (v.voiceURI || v.name) === pref.name); if (i >= 0) voice = i; } catch { /* */ } }
@@ -160,7 +199,9 @@ export async function speak(text, onEnd) {
 }
 
 export async function stopSpeaking() {
+  gen++;
   speaking = false;
+  if (audio) { const a = audio; audio = null; try { a.pause(); } catch { /* */ } a.onended?.(); }
   if (isAndroid) { try { await TextToSpeech.stop(); } catch { /* */ } return; }
   window.speechSynthesis?.cancel();
 }
