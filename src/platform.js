@@ -1,5 +1,5 @@
 // Capa de plataforma: Windows (Electron), Android (Capacitor) o navegador (pruebas)
-import { Capacitor } from '@capacitor/core';
+import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
 import { Share } from '@capacitor/share';
 import { LocalNotifications } from '@capacitor/local-notifications';
@@ -142,6 +142,50 @@ export function pickFile(accept = '*/*', multiple = false) {
     inp.onchange = () => resolve([...inp.files]);
     inp.click();
   });
+}
+
+// ---------- Red (sin restricciones de CORS en las apps instaladas) ----------
+const parseJson = (t) => {
+  if (t && typeof t === 'object') return t;
+  try { return JSON.parse(t); } catch { throw new Error('Google no devolvió datos. Revisa que la implementación diga "Cualquier persona".'); }
+};
+export async function httpJson(method, url, body) {
+  return parseJson(await httpRaw(method, url, body));
+}
+async function httpRaw(method, url, body) {
+  if (isWindows) {
+    const r = await native.http(method, url, body ? JSON.stringify(body) : null);
+    if (r.error) throw new Error('Sin conexión (' + r.error + ')');
+    return r.text;
+  }
+  if (isAndroid) {
+    const opts = { url, headers: { 'Content-Type': 'text/plain;charset=utf-8' }, responseType: 'text', connectTimeout: 30000, readTimeout: 90000 };
+    const r = method === 'POST' ? await CapacitorHttp.post({ ...opts, data: JSON.stringify(body) }) : await CapacitorHttp.get(opts);
+    return r.data;
+  }
+  const r = await fetch(url, method === 'POST' ? { method, body: JSON.stringify(body), headers: { 'Content-Type': 'text/plain;charset=utf-8' } } : {});
+  return r.text();
+}
+
+export async function attachmentExists(meta) {
+  try {
+    if (isWindows) return await native.fileExists(meta.id);
+    if (isAndroid) { await Filesystem.stat({ path: `adjuntos/${meta.id}`, directory: Directory.Data }); return true; }
+    return webFiles.has(meta.id) || !!localStorage.getItem('adj-' + meta.id);
+  } catch { return false; }
+}
+export async function readAttachmentB64(meta) {
+  if (isWindows) return native.readFile(meta.id);
+  if (isAndroid) return (await Filesystem.readFile({ path: `adjuntos/${meta.id}`, directory: Directory.Data })).data;
+  const u = webFiles.get(meta.id) || localStorage.getItem('adj-' + meta.id) || '';
+  return u.split(',')[1] || '';
+}
+export async function writeAttachmentB64(meta, b64) {
+  if (isWindows) return native.saveFile(meta.id, b64);
+  if (isAndroid) return Filesystem.writeFile({ path: `adjuntos/${meta.id}`, data: b64, directory: Directory.Data, recursive: true });
+  const u = `data:${meta.mime};base64,${b64}`;
+  webFiles.set(meta.id, u);
+  try { localStorage.setItem('adj-' + meta.id, u); } catch { /* */ }
 }
 
 // ---------- Notificaciones ----------

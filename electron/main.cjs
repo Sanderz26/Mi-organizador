@@ -1,5 +1,5 @@
 // Proceso principal de Electron (versión para Windows)
-const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, Notification, nativeImage } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, Notification, nativeImage, net } = require('electron');
 const path = require('path');
 const fs = require('fs');
 let autoUpdater = null;
@@ -120,6 +120,14 @@ ipcMain.handle('data:write', (_e, text) => { writeAtomic(dataFile, text); return
 ipcMain.on('data:writeSync', (e, text) => { try { writeAtomic(dataFile, text); } catch { /* */ } e.returnValue = true; });
 ipcMain.handle('file:save', (_e, id, b64) => { fs.writeFileSync(path.join(attachDir, safeId(id)), Buffer.from(b64, 'base64')); return true; });
 ipcMain.handle('file:read', (_e, id) => fs.readFileSync(path.join(attachDir, safeId(id))).toString('base64'));
+ipcMain.handle('file:exists', (_e, id) => fs.existsSync(path.join(attachDir, safeId(id))));
+ipcMain.handle('http', async (_e, method, url, body) => {
+  try {
+    if (!/^https:\/\//.test(url)) return { error: 'URL no válida' };
+    const r = await net.fetch(url, { method, body: body || undefined, headers: body ? { 'Content-Type': 'text/plain;charset=utf-8' } : undefined, redirect: 'follow' });
+    return { status: r.status, text: await r.text() };
+  } catch (e) { return { error: String(e?.message || e) }; }
+});
 ipcMain.handle('file:delete', (_e, id) => { try { fs.unlinkSync(path.join(attachDir, safeId(id))); } catch { /* */ } return true; });
 ipcMain.handle('file:open', async (_e, id, name) => {
   const dir = path.join(app.getPath('temp'), 'organizador');

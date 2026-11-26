@@ -5,6 +5,7 @@ import { esc, toast, todayKey, confirmModal } from '../util.js';
 import { exportText, pickFile, ensureNotifyPermission, showNotification, setAutostart, isWindows, isAndroid, platformName } from '../platform.js';
 import { refreshReminders } from '../notify.js';
 import { sound } from '../sound.js';
+import { syncCardHtml, bindSyncCard } from './syncui.js';
 import { checkForUpdates, installUpdate, updateStatus, APP_VERSION } from '../updates.js';
 
 const F = (name, label, type = 'text', extra = '') => {
@@ -31,6 +32,7 @@ export function render(el) {
   const counts = `${state.subjects.length} materias · ${state.tasks.length} tareas · ${state.meals.length} comidas · ${state.gymSessions.length} entrenos · ${state.sales.length} pedidos · ${state.notes.length} notas`;
   el.innerHTML = `
   <div class="page-head"><div><div class="sub">Versión ${__APP_VERSION__} · ${platformName === 'windows' ? 'Windows' : platformName === 'android' ? 'Android' : 'Navegador'}</div><h1>Ajustes</h1></div></div>
+  ${syncCardHtml()}
   <div class="grid g2">
     <div class="card"><div class="card-head"><h2>${icon('user', 18)} Perfil y apariencia</h2></div><div class="form-grid">
       ${F('name', '¿Cómo te llamo?')}
@@ -68,12 +70,13 @@ export function render(el) {
     </div>
     <div class="card"><div class="card-head"><h2>${icon('device-floppy', 18)} Respaldo</h2></div>
       <p class="small muted">${esc(counts)}</p>
-      <p class="small" style="margin:10px 0">Tus datos se guardan en este dispositivo. Exporta un respaldo y guárdalo en tu Google Drive; con él pasas tus datos entre el PC y la tableta.</p>
+      <p class="small" style="margin:10px 0">Exporta una copia completa de tus datos en un archivo. Útil como respaldo extra, además de la sincronización.</p>
       <div class="split"><button class="btn primary sm" data-export>${icon('upload', 15)} Exportar respaldo</button><button class="btn sm" data-import>${icon('download', 15)} Restaurar respaldo</button></div>
       <p class="tiny faint" style="margin-top:8px">Los archivos adjuntos no van en el respaldo; solo sus nombres.</p>
     </div>
   </div>`;
 
+  bindSyncCard(el);
   el.onchange = (e) => {
     const k = e.target.dataset.s;
     if (!k) return;

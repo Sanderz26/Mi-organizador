@@ -8,6 +8,8 @@ contextBridge.exposeInMainWorld('native', {
   saveFile: (id, b64) => ipcRenderer.invoke('file:save', id, b64),
   readFile: (id) => ipcRenderer.invoke('file:read', id),
   deleteFile: (id) => ipcRenderer.invoke('file:delete', id),
+  fileExists: (id) => ipcRenderer.invoke('file:exists', id),
+  http: (method, url, body) => ipcRenderer.invoke('http', method, url, body),
   openFile: (id, name) => ipcRenderer.invoke('file:open', id, name),
   exportFile: (filename, text) => ipcRenderer.invoke('export:save', filename, text),
   notify: (title, body) => ipcRenderer.invoke('notify', title, body),

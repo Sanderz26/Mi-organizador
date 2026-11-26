@@ -2,6 +2,7 @@
 import { readData, writeData, writeDataSync, readBackups } from './platform.js';
 import { soundConfig } from './sound.js';
 import { uid } from './util.js';
+import { flatten, unflatten, stamp } from './syncmodel.js';
 
 export const DEFAULT_SETTINGS = {
   name: '',
@@ -19,6 +20,8 @@ export const DEFAULT_SETTINGS = {
   printerWatts: 120,
   kwhCost: 850,
   closeToTray: true,
+  syncUrl: '',
+  syncKey: '',
   autostart: false,
   currentSemester: '',
   heightCm: 0,
@@ -38,6 +41,7 @@ const DEFAULTS = () => ({
   xpLog: [],
   activeTimer: null,
   holidaysCache: {},
+  _sync: { meta: {}, del: {} },
 });
 
 export const state = DEFAULTS();
@@ -59,6 +63,7 @@ export async function loadState() {
     }
   }
   ensureSemesters();
+  initShadow();
   applySettings();
 }
 
@@ -97,6 +102,7 @@ export function applyData(d) {
   for (const k of Object.keys(base)) state[k] = d[k] ?? base[k];
   state.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
   ensureSemesters();
+  initShadow();
 }
 
 export function applySettings() {
@@ -130,10 +136,46 @@ export function flushSync() {
   if (saveTimer && !writeBlocked) { clearTimeout(saveTimer); saveTimer = null; writeDataSync(JSON.stringify(state)); }
 }
 
-/** Guarda y vuelve a dibujar la vista actual */
-export function commit() {
+// ---------- Sincronización: marcas de cambio por registro ----------
+let shadow = {};
+function initShadow() {
+  if (!state._sync || typeof state._sync !== 'object') state._sync = { meta: {}, del: {} };
+  state._sync.meta ||= {};
+  state._sync.del ||= {};
+  shadow = {};
+  stamp(flatten(state), { shadow, meta: state._sync.meta, del: state._sync.del }, 1);
+}
+/** Marca lo que cambió desde la última vez (se llama en cada commit) */
+export function stampLocal() {
+  return stamp(flatten(state), { shadow, meta: state._sync.meta, del: state._sync.del });
+}
+export function localCopy() {
+  stampLocal();
+  return { docs: flatten(state), meta: { ...state._sync.meta }, del: { ...state._sync.del } };
+}
+/** Reemplaza el estado con la copia fusionada que llegó de la nube */
+export function applyMerged(m) {
+  const parts = unflatten(m.docs, state.settings);
+  for (const [k, v] of Object.entries(parts)) state[k] = v;
+  state.settings = { ...DEFAULT_SETTINGS, ...state.settings };
+  state._sync = { meta: { ...m.meta }, del: { ...m.del } };
+  shadow = {};
+  for (const [k, v] of Object.entries(m.docs)) shadow[k] = JSON.stringify(v);
+  ensureSemesters();
+  applySettings();
   save();
   listeners.forEach((fn) => fn());
+}
+
+const changeListeners = new Set();
+export const onLocalChange = (fn) => changeListeners.add(fn);
+
+/** Guarda y vuelve a dibujar la vista actual */
+export function commit() {
+  const changed = stampLocal();
+  save();
+  listeners.forEach((fn) => fn());
+  if (changed) changeListeners.forEach((fn) => fn());
 }
 
 // ---------- Ayudas de colecciones ----------
