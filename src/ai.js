@@ -15,7 +15,7 @@ const LS = 'organizador-ia';
 export function aiConfig() {
   let c = {};
   try { c = JSON.parse(localStorage.getItem(LS) || '{}'); } catch { /* */ }
-  return { provider: c.provider || 'groq', keys: c.keys || {}, models: c.models || {} };
+  return { provider: c.provider || 'groq', keys: c.keys || {}, models: c.models || {}, lists: c.lists || {} };
 }
 export function saveAiConfig(c) { try { localStorage.setItem(LS, JSON.stringify(c)); } catch { /* */ } }
 export const aiReady = () => { const c = aiConfig(); return !!c.keys[c.provider]; };
@@ -24,18 +24,67 @@ const modelOf = (c) => c.models[c.provider] || PROVIDERS[c.provider].model;
 function fail(status, text, provider) {
   let msg = '';
   try { const j = JSON.parse(text); msg = j.error?.message || j.error?.status || j.message || ''; } catch { /* */ }
-  if (status === 401 || status === 403 || /api key|API_KEY_INVALID|invalid x-api-key|authentication/i.test(msg)) return new Error('La clave no es válida. Revísala en Ajustes → Asistente.');
-  if (status === 429) return new Error(provider === 'claude' ? 'Llegaste a un límite de uso o se acabó tu saldo en la Consola.' : 'Llegaste al límite del plan gratis. Espera un minuto o cambia de proveedor en Ajustes.');
-  if (status === 404 || /model/i.test(msg)) return new Error('El modelo no está disponible. En Ajustes → Asistente toca "Probar" y elige otro de la lista.');
-  if (status === 400 && /credit|balance/i.test(msg)) return new Error('No tienes saldo en la Claude Console.');
-  return new Error(`El proveedor respondió con un error (${status})${msg ? ': ' + msg.slice(0, 160) : ''}`);
+  const detail = msg ? ` (detalle: ${msg.slice(0, 180)})` : '';
+  let e;
+  // Modelo que no sirve para esta clave: no existe, cambió de nombre o no está en el plan gratis
+  const modelIssue = status === 404 || (status === 400 && /model|not found|not supported/i.test(msg)) || (status === 429 && /limit: 0|free_tier.*limit|not available|billing/i.test(msg)) || (status === 403 && /model|not available|billing/i.test(msg));
+  if (modelIssue) e = new Error('Ese modelo no está disponible para tu clave' + detail);
+  else if (status === 400 && /credit|balance/i.test(msg)) e = new Error('No tienes saldo en la Claude Console.');
+  else if (status === 401 || status === 403 || /api key|API_KEY_INVALID|invalid x-api-key|authentication/i.test(msg)) e = new Error('La clave no es válida. Revísala en Ajustes → Asistente.' + detail);
+  else if (status === 429) e = new Error((provider === 'claude' ? 'Llegaste a un límite de uso o se acabó tu saldo en la Consola.' : 'Llegaste al límite del plan gratis por ahora. Espera un minuto o cambia de proveedor.') + detail);
+  else e = new Error(`El proveedor respondió con un error (${status})` + detail);
+  e.modelIssue = modelIssue;
+  return e;
 }
 
-/** Envía la conversación y devuelve el texto de la respuesta */
-export async function complete({ system, messages, json = true, maxTokens = 1800, cfg = aiConfig() }) {
+/** Orden de preferencia de modelos (los rápidos y gratuitos primero) */
+export function rankModels(provider, list) {
+  const score = (id) => {
+    const s = id.toLowerCase();
+    if (provider === 'gemini') {
+      if (/pro|omni|ultra|image|tts|audio|live|embedding|robotics|computer|thinking|exp/.test(s)) return 9;
+      if (/^gemini-[\d.]+-flash$/.test(s)) return 0;
+      if (/^gemini-[\d.]+-flash-lite$/.test(s)) return 1;
+      if (/flash-latest|flash-lite-latest/.test(s)) return 2;
+      if (/flash/.test(s) && !/preview/.test(s)) return 3;
+      if (/gemma/.test(s)) return 4;
+      if (/flash/.test(s)) return 5;
+      return 8;
+    }
+    if (provider === 'groq') return /gpt-oss-120b/.test(s) ? 0 : /llama-3\.3-70b/.test(s) ? 1 : /qwen|gpt-oss/.test(s) ? 2 : /llama/.test(s) ? 3 : 6;
+    return /haiku/.test(s) ? 0 : /sonnet/.test(s) ? 1 : 3;
+  };
+  const ver = (id) => Number((id.match(/(\d+(?:\.\d+)?)/) || [0, 0])[1]);
+  return list.slice().sort((a, b) => score(a) - score(b) || ver(b) - ver(a));
+}
+
+/** Envía la conversación; si el modelo no sirve, prueba solo con los siguientes de la lista */
+export async function complete(opts) {
+  const cfg = opts.cfg || aiConfig();
+  if (!cfg.keys[cfg.provider]) throw new Error('Configura el asistente en Ajustes → Asistente.');
+  const first = modelOf(cfg);
+  try {
+    return await completeWith({ ...opts, cfg }, first);
+  } catch (e) {
+    if (!e.modelIssue) throw e;
+    let list = cfg.lists[cfg.provider] || [];
+    if (!list.length) { try { list = await listModels(cfg.provider, cfg.keys[cfg.provider]); } catch { throw e; } }
+    for (const m of rankModels(cfg.provider, list).filter((x) => x !== first).slice(0, 6)) {
+      try {
+        const out = await completeWith({ ...opts, cfg }, m);
+        const c = aiConfig();
+        c.models[cfg.provider] = m;
+        c.lists[cfg.provider] = list;
+        saveAiConfig(c);
+        return out;
+      } catch (e2) { if (!e2.modelIssue) throw e2; }
+    }
+    throw new Error('Ningún modelo de tu lista funcionó con esta clave. Si usas Gemini, revisa en aistudio.google.com que tu proyecto tenga el nivel gratuito activo, o prueba con Groq.' + (e.message.includes('detalle') ? ' ' + e.message.slice(e.message.indexOf('(')) : ''));
+  }
+}
+
+async function completeWith({ system, messages, json = true, maxTokens = 1800, cfg }, model) {
   const key = cfg.keys[cfg.provider];
-  if (!key) throw new Error('Configura el asistente en Ajustes → Asistente.');
-  const model = modelOf(cfg);
   if (cfg.provider === 'groq') {
     const body = { model, temperature: 0.3, max_tokens: maxTokens, messages: [{ role: 'system', content: system }, ...messages] };
     let r = await httpRequest({ method: 'POST', url: 'https://api.groq.com/openai/v1/chat/completions', headers: { Authorization: 'Bearer ' + key, 'Content-Type': 'application/json' }, body: JSON.stringify(json ? { ...body, response_format: { type: 'json_object' } } : body) });

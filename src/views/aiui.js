@@ -1,15 +1,10 @@
 // Ajustes del asistente: proveedor, clave y modelo (se guardan solo en este dispositivo)
 import { icon } from '../icons.js';
 import { esc, toast } from '../util.js';
-import { PROVIDERS, aiConfig, saveAiConfig, listModels } from '../ai.js';
+import { PROVIDERS, aiConfig, saveAiConfig, listModels, rankModels, complete } from '../ai.js';
 import { sound } from '../sound.js';
 
-const pickModel = (provider, list, current) => {
-  if (current && list.includes(current)) return current;
-  const pref = { groq: [/gpt-oss-120b/, /llama-3\.3-70b/, /qwen/], gemini: [/flash-latest$/, /^gemini-[\d.]+-flash$/, /flash(?!.*lite)/], claude: [/haiku/, /sonnet/] }[provider];
-  for (const re of pref) { const m = list.find((x) => re.test(x)); if (m) return m; }
-  return list[0] || current || PROVIDERS[provider].model;
-};
+const pickModel = (provider, list) => rankModels(provider, list)[0] || PROVIDERS[provider].model;
 
 export function aiCardHtml() {
   const c = aiConfig();
@@ -39,13 +34,17 @@ export function bindAiCard(el, rerender) {
     if (!key) { msg.textContent = 'Pega tu clave primero.'; sound('error'); return; }
     msg.textContent = 'Probando…';
     try {
-      const list = await listModels(c.provider, key);
-      const chosen = pickModel(c.provider, list, q('[data-aimodel]').value);
+      const list = rankModels(c.provider, await listModels(c.provider, key));
       c.keys[c.provider] = key;
-      c.models[c.provider] = chosen;
+      c.models[c.provider] = pickModel(c.provider, list);
+      c.lists[c.provider] = list;
       saveAiConfig(c);
+      msg.textContent = 'Clave válida. Probando una respuesta…';
+      // Prueba real: si el primer modelo no responde, complete() busca otro y lo guarda
+      await complete({ system: 'Responde solo JSON: {"ok": true}', messages: [{ role: 'user', content: 'ping' }], maxTokens: 20 });
+      const chosen = aiConfig().models[c.provider];
       q('[data-aimodel]').innerHTML = list.map((m) => `<option value="${esc(m)}" ${m === chosen ? 'selected' : ''}>${esc(m)}</option>`).join('');
-      msg.textContent = `Funciona. ${list.length} modelos disponibles.`;
+      msg.textContent = `Funciona con ${chosen}.`;
       sound('complete');
       toast('Asistente listo', { icon: 'sparkles' });
     } catch (e) { msg.textContent = e.message; sound('error'); }
