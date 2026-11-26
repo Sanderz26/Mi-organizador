@@ -5,6 +5,7 @@ import { esc, hasModal, fmtSec, openModal } from './util.js';
 import { destroyCharts } from './charts.js';
 import { timerElapsed, timerLabel, togglePause, stopTimer } from './timer.js';
 import { startReminderLoop, refreshReminders } from './notify.js';
+import { startPrinterLoop } from './printer.js';
 import { syncHolidaysOnline } from './holidays.js';
 import { onAppPause, onBackButton, exitApp } from './platform.js';
 import { startUpdates } from './updates.js';
@@ -157,6 +158,7 @@ async function boot() {
   if (isWriteBlocked()) openModal({ title: 'No se pudieron leer tus datos', body: '<p>El archivo de datos parece dañado. Para protegerlo, la app no guardará cambios en esta sesión. Restaura un respaldo desde Ajustes o escríbeme para recuperarlo.</p>' });
   startReminderLoop();
   startUpdates();
+  startPrinterLoop();
   startSync();
   if (wakePrefs().on) startWake(onAries);
   onWakeStatus(drawWakeChip);

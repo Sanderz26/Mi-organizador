@@ -3,6 +3,7 @@ import { state, activeSubjects, currentSemester, subjectName } from './store.js'
 import { httpRequest } from './platform.js';
 import { levelInfo, xpOf, streakFor, gymWeeks, dietStreak } from './xp.js';
 import { agendaFor } from './agenda.js';
+import { printerContext } from './printer.js';
 import { todayKey, toKey, addDays, parseKey, sum, weekKey, fmtMin, DAYS, MONTHS, nowHM, norm } from './util.js';
 
 export const PROVIDERS = {
@@ -217,6 +218,8 @@ export function buildContext(question = '', budget = 9000) {
   const sales = state.sales.filter((x) => x.date.startsWith(mk) && x.status !== 'cotizado');
   L.push('\n## Negocio de impresión 3D (este mes)');
   L.push(`Ventas: ${sum(sales, (x) => x.price)} COP en ${sales.length} pedidos. Gastos del mes: ${sum(state.expenses.filter((x) => x.date.startsWith(mk) && !x.investment), (x) => x.amount)} COP. Clientes registrados: ${state.clients.length}. Pedidos en producción: ${state.sales.filter((x) => x.status === 'produccion').map((x) => x.desc).join(', ') || 'ninguno'}. Entregados sin pagar: ${state.sales.filter((x) => x.status === 'entregado').map((x) => `${x.desc} ${x.price}`).join(', ') || 'ninguno'}.`);
+  const pc = printerContext();
+  if (pc) L.push(pc);
   // Apuntes: títulos siempre; contenido solo de los que coinciden con la pregunta
   const words = norm(question).split(/\W+/).filter((w) => w.length > 3);
   const scored = state.notes.map((n) => ({ n, sc: words.filter((w) => norm(n.title + ' ' + n.body + ' ' + subjectName(n.subjectId)).includes(w)).length })).sort((a, b) => b.sc - a.sc);

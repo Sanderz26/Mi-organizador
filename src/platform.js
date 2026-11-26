@@ -176,17 +176,17 @@ async function httpRaw(method, url, body) {
  * Petición HTTP general. body es texto; con binary:true la respuesta llega en base64.
  * Devuelve { status, text } o { status, b64 }.
  */
-export async function httpRequest({ method = 'GET', url, headers = {}, body = null, binary = false }) {
+export async function httpRequest({ method = 'GET', url, headers = {}, body = null, binary = false, timeout = 0 }) {
   if (isWindows) {
-    const r = await native.request({ method, url, headers, body, binary });
+    const r = await native.request({ method, url, headers, body, binary, timeout });
     if (r.error) throw new Error('Sin conexión (' + r.error + ')');
     return r;
   }
   if (isAndroid) {
-    const r = await CapacitorHttp.request({ method, url, headers, data: body ?? undefined, responseType: binary ? 'arraybuffer' : 'text', connectTimeout: 30000, readTimeout: 120000 });
+    const r = await CapacitorHttp.request({ method, url, headers, data: body ?? undefined, responseType: binary ? 'arraybuffer' : 'text', connectTimeout: timeout || 30000, readTimeout: timeout || 120000 });
     return binary ? { status: r.status, b64: String(r.data || '').replace(/\s+/g, '') } : { status: r.status, text: typeof r.data === 'string' ? r.data : JSON.stringify(r.data) };
   }
-  const r = await fetch(url, { method, headers, body: body ?? undefined });
+  const r = await fetch(url, { method, headers, body: body ?? undefined, signal: timeout ? AbortSignal.timeout(timeout) : undefined });
   if (binary) {
     const buf = new Uint8Array(await r.arrayBuffer());
     let s = '';

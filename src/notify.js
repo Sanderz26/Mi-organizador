@@ -3,6 +3,7 @@ import { upcomingReminders } from './agenda.js';
 import { isAndroid, scheduleAndroid, showNotification } from './platform.js';
 import { sound } from './sound.js';
 import { toast } from './util.js';
+import { printerReminders } from './printer.js';
 
 let timer = null;
 let resched = null;
@@ -11,7 +12,7 @@ const LS = 'organizador-last-reminder-check';
 export function refreshReminders() {
   if (!isAndroid) return;
   clearTimeout(resched);
-  resched = setTimeout(() => scheduleAndroid(upcomingReminders(45)), 800);
+  resched = setTimeout(() => scheduleAndroid([...upcomingReminders(45), ...printerReminders()]), 800);
 }
 
 export function startReminderLoop() {

@@ -142,10 +142,12 @@ ipcMain.handle('multipart', async (_e, { url, headers, fields, file }) => {
     return { status: r.status, text: await r.text() };
   } catch (e) { return { error: String(e?.message || e) }; }
 });
-ipcMain.handle('request', async (_e, { method, url, headers, body, binary }) => {
+// http:// solo hacia la red de la casa (la impresora 3D); todo lo demás debe ser https://
+const LAN_HTTP = /^http:\/\/(10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+|[a-z0-9-]+\.local)(:\d+)?\//i;
+ipcMain.handle('request', async (_e, { method, url, headers, body, binary, timeout }) => {
   try {
-    if (!/^https:\/\//.test(url)) return { error: 'URL no válida' };
-    const r = await net.fetch(url, { method, headers, body: body ?? undefined, redirect: 'follow' });
+    if (!/^https:\/\//.test(url) && !LAN_HTTP.test(url)) return { error: 'URL no válida' };
+    const r = await net.fetch(url, { method, headers, body: body ?? undefined, redirect: 'follow', signal: timeout ? AbortSignal.timeout(timeout) : undefined });
     if (binary) return { status: r.status, b64: Buffer.from(await r.arrayBuffer()).toString('base64') };
     return { status: r.status, text: await r.text() };
   } catch (e) { return { error: String(e?.message || e) }; }

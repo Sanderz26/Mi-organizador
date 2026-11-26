@@ -8,6 +8,7 @@ import { awardStudy } from '../timer.js';
 import { toggleTask } from './tasks.js';
 import { canDictate, listen, speak, stopSpeaking } from '../voice.js';
 import { pauseWake, resumeWake } from '../wakeword.js';
+import { printerIp, pollPrinter } from '../printer.js';
 import { sound } from '../sound.js';
 
 const LS = 'organizador-ia-chat';
@@ -146,6 +147,8 @@ async function send(el, text, { byVoice = false } = {}) {
   draw(el);
   try {
     const cfg = aiConfig();
+    // Si pregunta por la impresora, se consulta en ese momento (máximo 3 s)
+    if (/impres|impresora|printer/i.test(text) && printerIp()) await Promise.race([pollPrinter(), new Promise((r) => setTimeout(r, 3000))]);
     const spoken = (byVoice && voiceMode !== 'apagada') || voiceMode === 'siempre';
     const system = SYSTEM + (spoken ? '\n\n# Respuesta hablada\nEsta respuesta se va a leer en voz alta. Escribe "respuesta" como hablaría una persona: frases cortas y naturales, en tono cercano, sin listas, viñetas, negritas, emojis ni símbolos. Máximo 3 o 4 frases, salvo que te pidan más detalle.' : '') + '\n\n# Datos del usuario\n' + buildContext(text, PROVIDERS[cfg.provider].budget);
     const history = chat.slice(-9).map((m) => ({ role: m.role, content: m.role === 'assistant' ? JSON.stringify({ respuesta: m.content, acciones: [] }) : m.content }));

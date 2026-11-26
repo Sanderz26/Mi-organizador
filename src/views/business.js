@@ -4,6 +4,7 @@ import { icon } from '../icons.js';
 import { esc, todayKey, fmtDate, fmtMoney, fmtNum, formModal, emptyState, sum, monthKey, MONTHS, cap, matches } from '../util.js';
 import { chart, destroyCharts } from '../charts.js';
 import { sound } from '../sound.js';
+import { printerTab, printerClick } from './printerui.js';
 
 const STATUS = { cotizado: { l: 'Cotizado', c: '' }, produccion: { l: 'En producción', c: 'warn' }, entregado: { l: 'Entregado', c: 'acc' }, pagado: { l: 'Pagado', c: 'ok' } };
 const MATERIALS = ['PLA', 'PETG', 'ABS', 'TPU', 'ASA', 'Resina', 'Nylon', 'Otro'];
@@ -34,9 +35,9 @@ export function monthSummary(d) {
   return { income, costs, expenses, invest, profit: income - costs - expenses, orders: sales.length, clients: clients.size, ticket: sales.length ? income / sales.length : 0, grams: sum(sales, (x) => x.grams), hours: sum(sales, (x) => x.hours), pending: sum(state.sales.filter((x) => x.status === 'entregado'), (x) => x.price) };
 }
 
-export async function saleDialog(sale = null) {
+export async function saleDialog(sale = null, prefill = null) {
   const s = state.settings;
-  const x = sale || { date: todayKey(), kind: 'impresion', qty: 1, status: 'produccion', material: 'PLA', filamentCostKg: s.filamentCostKg };
+  const x = sale || { date: todayKey(), kind: 'impresion', qty: 1, status: 'produccion', material: 'PLA', filamentCostKg: s.filamentCostKg, ...(prefill || {}) };
   const v = await formModal({
     title: sale ? 'Editar pedido' : 'Nuevo pedido',
     wide: true,
@@ -76,9 +77,10 @@ export async function saleDialog(sale = null) {
   if (sale?.kind === 'producto' && sale.productId) { const p = find('products', sale.productId); if (p) p.stock = (Number(p.stock) || 0) + (Number(sale.qty) || 0); }
   if (v.kind === 'producto' && v.productId) { const p = find('products', v.productId); if (p) p.stock = (Number(p.stock) || 0) - (Number(v.qty) || 0); }
   delete v.newClient;
-  upsert('sales', { ...(sale || {}), ...v, clientId, watts: s.printerWatts, kwhCost: s.kwhCost });
+  const saved = upsert('sales', { ...(sale || {}), ...v, clientId, watts: s.printerWatts, kwhCost: s.kwhCost });
   sound(v.status === 'pagado' ? 'xp' : 'complete');
   commit();
+  return saved;
 }
 
 export async function clientDialog(c = null) {
@@ -205,6 +207,8 @@ export function render(el) {
     const totInv = sum(state.expenses.filter((x) => x.investment), (x) => x.amount);
     body = `<div class="grid g3"><div class="stat"><div class="lbl">Inversión total</div><div class="val">${fmtMoney(totInv)}</div></div><div class="stat"><div class="lbl">Gastos totales</div><div class="val">${fmtMoney(sum(state.expenses.filter((x) => !x.investment), (x) => x.amount))}</div></div><div class="stat"><div class="lbl">Ventas totales</div><div class="val">${fmtMoney(sum(state.sales.filter(counts), (x) => x.price))}</div></div></div>
       ${list.length ? `<div class="card" style="padding:6px 8px"><div class="tablewrap"><table class="t"><thead><tr><th>Fecha</th><th>Concepto</th><th>Categoría</th><th>Tipo</th><th class="n">Valor</th></tr></thead><tbody>${list.map((x) => `<tr class="click" data-exp="${esc(x.id)}"><td class="num">${esc(fmtDate(x.date))}</td><td>${esc(x.concept)}</td><td class="small">${esc(x.category)}</td><td><span class="pill ${x.investment ? 'acc' : ''}">${x.investment ? 'Inversión' : 'Gasto'}</span></td><td class="n">${fmtMoney(x.amount)}</td></tr>`).join('')}</tbody></table></div></div>` : `<div class="card">${emptyState('cash', 'Registra lo que gastas e inviertes en el negocio.')}</div>`}`;
+  } else if (tab === 'impresora') {
+    const r = printerTab(); body = r.html; after = r.after;
   } else {
     addBtn = `<button class="btn primary" data-newprod>${icon('plus', 16)} Producto</button>`;
     const prods = state.products.filter((p) => !bq || matches(bq, p.name, p.notes));
@@ -215,7 +219,7 @@ export function render(el) {
 
   el.innerHTML = `
   <div class="page-head"><div><div class="sub">Impresión 3D</div><h1>Negocio</h1></div><div class="head-actions">${addBtn}</div></div>
-  <div class="split"><div class="tabs">${[['resumen', 'Resumen'], ['pedidos', 'Pedidos'], ['clientes', 'Clientes'], ['gastos', 'Gastos e inversión'], ['inventario', 'Inventario']].map(([k, l]) => `<button class="tab ${tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>${tab !== 'resumen' ? `<input type="search" data-bq placeholder="Buscar en ${tab}" value="${esc(bq)}" style="max-width:240px">` : ''}</div>
+  <div class="split"><div class="tabs">${[['resumen', 'Resumen'], ['pedidos', 'Pedidos'], ['clientes', 'Clientes'], ['gastos', 'Gastos e inversión'], ['inventario', 'Inventario'], ['impresora', 'Impresora']].map(([k, l]) => `<button class="tab ${tab === k ? 'active' : ''}" data-tab="${k}">${l}</button>`).join('')}</div>${tab !== 'resumen' && tab !== 'impresora' ? `<input type="search" data-bq placeholder="Buscar en ${tab}" value="${esc(bq)}" style="max-width:240px">` : ''}</div>
   ${body}`;
   after?.(el);
 
@@ -225,10 +229,11 @@ export function render(el) {
     const v = e.target.value;
     bqTimer = setTimeout(() => { bq = v; render(el); const i = el.querySelector('[data-bq]'); if (i) { i.focus(); i.setSelectionRange(v.length, v.length); } }, 220);
   };
-  el.onclick = (e) => {
-    const t = e.target.closest('button,[data-sale],[data-client],[data-exp],[data-prod]');
+  el.onclick = async (e) => {
+    const t = e.target.closest('button,[data-sale],[data-client],[data-exp],[data-prod],[data-print]');
     if (!t) return;
     const d = t.dataset;
+    if (tab === 'impresora' && !d.tab && (await printerClick(t, () => render(el)))) return;
     if (d.tab) { tab = d.tab; bq = ''; render(el); }
     else if (d.m) { const [y, m] = month.split('-').map(Number); month = monthKey(new Date(y, m - 1 + Number(d.m), 1)); render(el); }
     else if ('newsale' in d) saleDialog();
