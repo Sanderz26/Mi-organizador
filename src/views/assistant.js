@@ -146,7 +146,8 @@ async function send(el, text, { byVoice = false } = {}) {
   draw(el);
   try {
     const cfg = aiConfig();
-    const system = SYSTEM + '\n\n# Datos del usuario\n' + buildContext(text, PROVIDERS[cfg.provider].budget);
+    const spoken = (byVoice && voiceMode !== 'apagada') || voiceMode === 'siempre';
+    const system = SYSTEM + (spoken ? '\n\n# Respuesta hablada\nEsta respuesta se va a leer en voz alta. Escribe "respuesta" como hablaría una persona: frases cortas y naturales, en tono cercano, sin listas, viñetas, negritas, emojis ni símbolos. Máximo 3 o 4 frases, salvo que te pidan más detalle.' : '') + '\n\n# Datos del usuario\n' + buildContext(text, PROVIDERS[cfg.provider].budget);
     const history = chat.slice(-9).map((m) => ({ role: m.role, content: m.role === 'assistant' ? JSON.stringify({ respuesta: m.content, acciones: [] }) : m.content }));
     let reply = parseJsonReply(await complete({ system, messages: history }));
     let actions = (Array.isArray(reply.acciones) ? reply.acciones : []).filter((a) => actionLabel(a));

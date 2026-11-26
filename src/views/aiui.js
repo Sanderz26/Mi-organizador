@@ -15,8 +15,10 @@ function azVoiceOptions(az) {
   if (!list.length) return `<option value="">${az.key ? 'Toca "Probar y guardar" para ver las voces' : 'Primero guarda la clave'}</option>`;
   const cur = az.voice || 'es-CO-SalomeNeural';
   const groups = {};
-  for (const v of list) (groups[v.multi ? 'Multilingües (hablan español)' : v.country] ||= []).push(v);
-  const order = Object.keys(groups).sort((a, b) => (b === 'Colombia') - (a === 'Colombia') || (a.startsWith('Multi')) - (b.startsWith('Multi')) || a.localeCompare(b, 'es'));
+  const HD = 'HD: las más naturales', MULTI = 'Multilingües: muy naturales';
+  for (const v of list) (groups[v.hd ? HD : v.multi ? MULTI : v.country] ||= []).push(v);
+  const rank = (g) => (g === HD ? 0 : g === MULTI ? 1 : g === 'Colombia' ? 2 : 3);
+  const order = Object.keys(groups).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'es'));
   return order.map((g) => `<optgroup label="${esc(g)}">${groups[g].sort((a, b) => a.name.localeCompare(b.name)).map((v) => `<option value="${esc(v.id)}" ${v.id === cur ? 'selected' : ''}>${esc(prettyAzure(v))}</option>`).join('')}</optgroup>`).join('');
 }
 

@@ -64,15 +64,15 @@ export async function fetchVoices(key, region) {
   let list;
   try { list = JSON.parse(r.text); } catch { throw new Error('Azure devolvió una respuesta que no se entiende. Revisa la región.'); }
   return list
-    .filter((v) => /^es-/i.test(v.Locale) || (/Multilingual/i.test(v.ShortName) && (v.SecondaryLocaleList || []).some((l) => /^es-/i.test(l))))
-    .map((v) => ({ id: v.ShortName, name: v.LocalName || v.DisplayName, locale: v.Locale, country: countryOf(v.Locale, String(v.LocaleName || v.Locale).replace(/^.*\((.*)\).*$/, '$1')), gender: v.Gender === 'Female' ? 'mujer' : 'hombre', multi: /Multilingual/i.test(v.ShortName) }));
+    .filter((v) => /^es-/i.test(v.Locale) || /DragonHD(?!Flash)/i.test(v.ShortName) || (/Multilingual/i.test(v.ShortName) && (v.SecondaryLocaleList || []).some((l) => /^es-/i.test(l))))
+    .map((v) => ({ id: v.ShortName, name: v.LocalName || v.DisplayName, locale: v.Locale, country: countryOf(v.Locale, String(v.LocaleName || v.Locale).replace(/^.*\((.*)\).*$/, '$1')), gender: v.Gender === 'Female' ? 'mujer' : 'hombre', multi: /Multilingual|DragonHD/i.test(v.ShortName), hd: /DragonHD/i.test(v.ShortName) }));
 }
 
 const COUNTRY = { CO: 'Colombia', MX: 'México', ES: 'España', US: 'EE. UU.', AR: 'Argentina', BO: 'Bolivia', CL: 'Chile', CR: 'Costa Rica', CU: 'Cuba', DO: 'Rep. Dominicana', EC: 'Ecuador', GQ: 'Guinea Ecuatorial', GT: 'Guatemala', HN: 'Honduras', NI: 'Nicaragua', PA: 'Panamá', PE: 'Perú', PR: 'Puerto Rico', PY: 'Paraguay', SV: 'El Salvador', UY: 'Uruguay', VE: 'Venezuela' };
 const countryOf = (locale, fallback) => COUNTRY[String(locale).split('-')[1]] || fallback;
 
 export function prettyAzure(v) {
-  return `${v.name} · ${v.multi ? 'multilingüe' : v.country} · ${v.gender}`;
+  return `${v.name} · ${v.hd ? 'HD' : v.multi ? 'multilingüe' : v.country} · ${v.gender}`;
 }
 
 const xml = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
@@ -84,10 +84,12 @@ export async function synthesize(text, { voice, rate = 1 } = {}) {
   const t = String(text).slice(0, MAX_CHARS);
   const lang = v.split('-').slice(0, 2).join('-');
   const pct = Math.round((rate - 1) * 100);
-  const body = `<prosody rate="${pct >= 0 ? '+' : ''}${pct}%">${xml(t)}</prosody>`;
+  const hd = /DragonHD/i.test(v);
+  // Las voces HD detectan solas el idioma y la entonación: se les manda el texto tal cual
+  const body = hd ? xml(t) : `<prosody rate="${pct >= 0 ? '+' : ''}${pct}%">${xml(t)}</prosody>`;
   // Las voces multilingües hablan español con acento latino si se les indica el idioma
   const inner = /Multilingual/i.test(v) ? `<lang xml:lang="es-MX">${body}</lang>` : body;
-  const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${lang}"><voice name="${xml(v)}">${inner}</voice></speak>`;
+  const ssml = `<speak version="1.0" xmlns="http://www.w3.org/2001/10/synthesis" xmlns:mstts="https://www.w3.org/2001/mstts" xml:lang="${hd ? 'es-MX' : lang}"><voice name="${xml(v)}">${inner}</voice></speak>`;
   const r = await httpRequest({
     method: 'POST',
     url: base(c.region) + '/v1',

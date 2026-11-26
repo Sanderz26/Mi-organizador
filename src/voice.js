@@ -124,7 +124,19 @@ const prettyVoice = (v) => {
   return `${name || v.lang} · ${country}`;
 };
 export { prettyVoice };
-const clean = (t) => String(t || '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/^\s*[-•*]\s+/gm, '').replace(/[#_`>]/g, '').replace(/https?:\/\/\S+/g, 'el enlace').replace(/\n{2,}/g, '. ').replace(/\n/g, '. ').trim();
+/** Deja el texto listo para leerlo en voz alta: sin formato, emojis ni símbolos que suenan raro */
+const clean = (t) => String(t || '')
+  .replace(/```[\s\S]*?```/g, ' ')
+  .replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1')
+  .replace(/https?:\/\/\S+/g, 'el enlace')
+  .replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}\u{FE0F}\u{200D}]/gu, '')
+  .replace(/\s*(→|->|=>)\s*/g, ': ').replace(/\s+[–—]\s+/g, ', ').replace(/\s+\/\s+/g, ' o ').replace(/([a-záéíóúñ])\/([a-záéíóúñ])/gi, '$1 por $2')
+  .replace(/^\s*#{1,6}\s*/gm, '').replace(/^\s*(?:[-•*]|\d+[.)])\s+/gm, '')
+  .replace(/[_`>|#]/g, '')
+  .replace(/\(([^)]{1,40})\)/g, ', $1,')
+  .split(/\n+/).map((l) => l.trim()).filter(Boolean)
+  .map((l) => (/[.!?:;,]$/.test(l) ? l : l + '.')).join(' ')
+  .replace(/:\./g, ':').replace(/\s+([,.])/g, '$1').replace(/,\s*([.,])/g, '$1').replace(/\s{2,}/g, ' ').trim();
 let speaking = false;
 export const isSpeaking = () => speaking;
 
