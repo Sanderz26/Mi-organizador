@@ -6,12 +6,13 @@ import { destroyCharts } from './charts.js';
 import { timerElapsed, timerLabel, togglePause, stopTimer } from './timer.js';
 import { startReminderLoop, refreshReminders } from './notify.js';
 import { startPrinterLoop } from './printer.js';
+import { openFace, faceUnlocked, faceOpen, closeFace } from './face.js';
 import { syncHolidaysOnline } from './holidays.js';
 import { onAppPause, onBackButton, exitApp } from './platform.js';
 import { startUpdates } from './updates.js';
 import { startSync } from './sync.js';
 import { openSearch } from './search.js';
-import { wakePrefs, startWake, onWakeStatus } from './wakeword.js';
+import { wakePrefs, startWake, onWakeStatus, resumeWake, AriesNative } from './wakeword.js';
 import { requestVoiceStart } from './views/assistant.js';
 import { sound } from './sound.js';
 
@@ -91,9 +92,16 @@ function openMore() {
 }
 
 /** Al decir "Aries": trae la app al frente, abre el asistente y empieza a escuchar */
-export function onAries() {
+export function onAries(o = {}) {
   sound('start');
   window.native?.showWindow?.();
+  openFace({
+    locked: !!o.locked,
+    // Tableta bloqueada: pide el PIN para ver el resto de la app
+    onUnlock: async () => { try { const r = await AriesNative?.unlock(); if (r?.ok) faceUnlocked(); } catch { /* */ } },
+    // Al cerrar: si la app se abrió sola, vuelve al fondo y la pantalla se apaga como siempre
+    onClose: () => { resumeWake(); AriesNative?.finish({ background: !!o.launched }).catch(() => {}); },
+  });
   requestVoiceStart();
   if (parseHash().route === 'asistente') render(); else go('asistente');
 }
@@ -149,6 +157,7 @@ async function boot() {
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => { applySettings(); render(); });
   onAppPause(() => { flushSync(); flush(); });
   onBackButton(() => {
+    if (faceOpen()) { closeFace(); return; }
     const ov = document.querySelector('.overlay');
     if (ov) { ov.close?.(); return; }
     if (parseHash().route !== 'inicio') { go('inicio'); return; }

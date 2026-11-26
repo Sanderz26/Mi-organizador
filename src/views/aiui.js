@@ -5,7 +5,7 @@ import { PROVIDERS, aiConfig, localAiConfig, saveAiConfig, setAiShared, listMode
 import { commit, state } from '../store.js';
 import { listVoices, voicePrefs, setVoicePrefs, speak, prettyVoice, canDictate, voiceEngine } from '../voice.js';
 import { REGIONS, normRegion, azureConfig, localAzure, saveAzure, setAzureShared, fetchVoices, prettyAzure, usage, FREE_CHARS, styleFor, setStyleFor, voiceInfo, styleName } from '../azuretts.js';
-import { wakePrefs, setWakePrefs, startWake, stopWake, wakeStatus, onWakeStatus, deleteWakeModel, wakeSupportedHere, wakeWhereNote } from '../wakeword.js';
+import { wakePrefs, setWakePrefs, startWake, stopWake, wakeStatus, onWakeStatus, deleteWakeModel, wakeSupportedHere, wakeWhereNote, AriesNative, nativePermissions, openNativeSetting } from '../wakeword.js';
 import { sound } from '../sound.js';
 
 const pickModel = (provider, list) => rankModels(provider, list)[0] || PROVIDERS[provider].model;
@@ -68,10 +68,14 @@ export function aiCardHtml() {
       <div class="full split"><button class="btn sm" data-voicetest>${icon('player-play', 15)} Escuchar ejemplo</button><button class="btn ghost sm" data-voicereset>Velocidad y tono normales</button></div>
       <div class="full" style="margin-top:6px"><h3 style="display:flex;align-items:center;gap:8px">${icon('microphone', 16)} Activar con la palabra "Aries"</h3></div>
       <div class="full field"><label class="checkline"><input type="checkbox" data-wake ${wakePrefs().on ? 'checked' : ''} ${wakeSupportedHere() ? '' : 'disabled'}> Escuchar "Aries" para abrir el asistente y empezar a hablar</label>
-        <div class="hint">La palabra se detecta dentro del dispositivo: tu audio no sale de aquí hasta que dices "Aries". La primera vez descarga un modelo de voz en español (34 MB). ${esc(wakeWhereNote())}</div></div>
+        <div class="hint">La palabra se detecta dentro del dispositivo: tu audio no sale de aquí hasta que dices "Aries". La primera vez descarga un modelo de voz en español (unos 40 MB). ${esc(wakeWhereNote())}</div></div>
+      ${AriesNative ? `
+      <div class="field"><label>Cuándo escuchar</label><select data-wakemode>${[['siempre', 'Siempre'], ['cargando', 'Solo cuando está cargando'], ['horario', 'Solo en un horario']].map(([v, l]) => `<option value="${v}" ${wakePrefs().mode === v ? 'selected' : ''}>${l}</option>`).join('')}</select><div class="hint">Escuchar todo el tiempo gasta batería; "solo cargando" no gasta nada de batería.</div></div>
+      <div class="field" data-wakehours ${wakePrefs().mode === 'horario' ? '' : 'hidden'}><label>Horario</label><div class="split" style="gap:8px"><input type="time" data-wakefrom value="${esc(wakePrefs().from)}"><span class="muted">a</span><input type="time" data-waketo value="${esc(wakePrefs().to)}"></div></div>
+      <div class="full field"><label>Permisos de la tableta</label><div class="list" data-wakeperms><div class="small muted">Revisando…</div></div><div class="hint">Para que Aries prenda la pantalla y te muestre la carita aunque la tableta esté bloqueada, activa todo lo que aparezca en rojo.</div></div>` : ''}
       <div class="field"><label>Sensibilidad</label><select data-wakesens>${[[0.9, 'Baja (menos activaciones por error)'], [0.8, 'Normal'], [0.7, 'Alta (te entiende de más lejos)']].map(([v, l]) => `<option value="${v}" ${Number(wakePrefs().sens) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="field"><label>Estado</label><div class="small" data-wakestate style="min-height:40px;display:flex;align-items:center"></div></div>
-      <div class="full split"><button class="btn ghost sm" data-wakedel>Borrar modelo descargado</button></div>
+      ${AriesNative ? '' : '<div class="full split"><button class="btn ghost sm" data-wakedel>Borrar modelo descargado</button></div>'}
       <p class="full tiny faint">La clave nunca va al código de la app. Si no marcas la casilla, queda solo en este dispositivo. Al usar el asistente, tu pregunta y un resumen de tus datos se envían al proveedor elegido.</p>
     </div></div>`;
 }
@@ -81,7 +85,7 @@ export function bindAiCard(el, rerender) {
   if (!card) return;
   const q = (s) => card.querySelector(s);
   // Activación por voz
-  const wakeText = (s) => ({ off: 'Apagado', downloading: `Descargando modelo… ${s.pct || 0}%`, loading: 'Preparando…', listening: 'Escuchando: di "Aries"', paused: 'En pausa (vuelve a escuchar al abrir la app)', error: s.message || 'Error' }[s.state] || '');
+  const wakeText = (s) => ({ off: 'Apagado', downloading: `Descargando modelo… ${s.pct || 0}%`, loading: 'Preparando…', listening: 'Escuchando: di "Aries"', paused: AriesNative ? s.message || 'En pausa' : 'En pausa (vuelve a escuchar al abrir la app)', error: s.message || 'Error' }[s.state] || '');
   const paintWake = (s) => { const w = card.querySelector('[data-wakestate]'); if (w?.isConnected) { w.textContent = wakeText(s); w.className = 'small ' + (s.state === 'listening' ? 'up' : s.state === 'error' ? 'down' : ''); } };
   paintWake(wakeStatus());
   onWakeStatus(paintWake);
@@ -94,7 +98,31 @@ export function bindAiCard(el, rerender) {
     } else { setWakePrefs({ on: false }); stopWake(); }
   });
   q('[data-wakesens]').addEventListener('change', (e) => { setWakePrefs({ sens: Number(e.target.value) }); toast('Sensibilidad guardada'); });
-  q('[data-wakedel]').addEventListener('click', async () => { setWakePrefs({ on: false }); stopWake(); await deleteWakeModel(); toast('Modelo borrado (se descarga de nuevo si lo activas)'); rerender(); });
+  // Tableta: cuándo escuchar y permisos
+  if (AriesNative) {
+    q('[data-wakemode]').addEventListener('change', (e) => { setWakePrefs({ mode: e.target.value }); q('[data-wakehours]').hidden = e.target.value !== 'horario'; toast('Guardado'); });
+    q('[data-wakefrom]').addEventListener('change', (e) => setWakePrefs({ from: e.target.value }));
+    q('[data-waketo]').addEventListener('change', (e) => setWakePrefs({ to: e.target.value }));
+    const PERMS = [
+      ['microphone', 'Micrófono', 'Para escuchar "Aries"', 'app'],
+      ['notifications', 'Notificaciones', 'Para el aviso fijo y para abrir la app', 'notifications'],
+      ['fullScreen', 'Notificaciones de pantalla completa', 'Prende la pantalla y abre la carita con la tableta bloqueada', 'fullScreen'],
+      ['overlay', 'Mostrar sobre otras apps', 'Abre la carita aunque estés usando otra app', 'overlay'],
+      ['battery', 'Sin restricción de batería', 'Evita que Android apague a Aries', 'battery'],
+    ];
+    const paintPerms = async () => {
+      const box = q('[data-wakeperms]');
+      const p = await nativePermissions().catch(() => null);
+      if (!p || !box?.isConnected) return;
+      box.innerHTML = PERMS.map(([k, t, d, w]) => `<div class="row"><span class="pill ${p[k] ? 'ok' : 'bad'}">${p[k] ? 'Activo' : 'Falta'}</span><div class="grow"><div style="font-weight:500">${esc(t)}</div><div class="tiny muted">${esc(d)}</div></div>${p[k] ? '' : `<button class="btn sm" data-wperm="${w}">Activar</button>`}</div>`).join('');
+    };
+    paintPerms();
+    q('[data-wakeperms]').addEventListener('click', (e) => { const b = e.target.closest('[data-wperm]'); if (b) openNativeSetting(b.dataset.wperm); });
+    // Al volver de los ajustes de Android, se revisa de nuevo
+    const onVis = () => { if (document.visibilityState === 'visible') { if (q('[data-wakeperms]')?.isConnected) paintPerms(); else document.removeEventListener('visibilitychange', onVis); } };
+    document.addEventListener('visibilitychange', onVis);
+  }
+  q('[data-wakedel]')?.addEventListener('click', async () => { setWakePrefs({ on: false }); stopWake(); await deleteWakeModel(); toast('Modelo borrado (se descarga de nuevo si lo activas)'); rerender(); });
   // Voces del dispositivo
   listVoices().then(({ es, others }) => {
     const sel = q('[data-voice]');

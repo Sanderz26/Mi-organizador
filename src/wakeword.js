@@ -1,14 +1,23 @@
 // Activación por voz con la palabra "Aries".
 // La detección es 100 % local (modelo Vosk en español): el audio no sale del dispositivo
 // hasta que se reconoce la palabra; ahí empieza el dictado normal del asistente.
+import { registerPlugin } from '@capacitor/core';
 import { isWindows, isAndroid } from './platform.js';
+
+// En la tableta, "Aries" lo escucha un servicio nativo de Android (funciona con la app cerrada y la pantalla apagada)
+export const AriesNative = isAndroid ? registerPlugin('Aries') : null;
+let nativeBound = false;
 
 const LS = 'organizador-aries';
 const MODEL_URL = 'https://raw.githubusercontent.com/ccoreilly/vosk-browser/gh-pages/models/vosk-model-small-es-0.3.tar.gz';
 const DB = 'organizador-voz', STORE = 'modelos', KEY = 'vosk-es-0.3';
 
-export function wakePrefs() { try { return { on: false, sens: 0.8, ...JSON.parse(localStorage.getItem(LS) || '{}') }; } catch { return { on: false, sens: 0.8 }; } }
-export function setWakePrefs(p) { try { localStorage.setItem(LS, JSON.stringify({ ...wakePrefs(), ...p })); } catch { /* */ } }
+const WDEF = { on: false, sens: 0.8, mode: 'siempre', from: '07:00', to: '23:00' };
+export function wakePrefs() { try { return { ...WDEF, ...JSON.parse(localStorage.getItem(LS) || '{}') }; } catch { return { ...WDEF }; } }
+export function setWakePrefs(p) {
+  try { localStorage.setItem(LS, JSON.stringify({ ...wakePrefs(), ...p })); } catch { /* */ }
+  if (AriesNative && wakePrefs().on && ('sens' in p || 'mode' in p || 'from' in p || 'to' in p)) { const w = wakePrefs(); AriesNative.configure({ sens: w.sens, mode: w.mode, from: w.from, to: w.to }).catch(() => {}); }
+}
 
 let status = { state: 'off' }; // off | downloading | loading | listening | paused | error
 const listeners = new Set();
@@ -98,10 +107,27 @@ function stopMic(next = 'paused') {
   return closing;
 }
 
+function bindNative() {
+  if (nativeBound) return;
+  nativeBound = true;
+  AriesNative.addListener('wake', (d) => onWake?.(d || {}));
+  AriesNative.addListener('status', (s) => set({ state: s.state, pct: s.pct, message: s.reason }));
+}
+
 /** Enciende la escucha (descarga el modelo la primera vez) */
 export async function startWake(handler) {
   if (handler) onWake = handler;
   wantRunning = true;
+  if (AriesNative) {
+    bindNative();
+    const w = wakePrefs();
+    try {
+      const st = await AriesNative.start({ sens: w.sens, mode: w.mode, from: w.from, to: w.to });
+      set({ state: st.state === 'off' ? 'loading' : st.state, pct: st.pct, message: st.reason });
+      deleteWakeModel().catch(() => {}); // el modelo de la versión web ya no se usa en la tableta
+    } catch (e) { set({ state: 'error', message: e.message || 'No se pudo activar' }); }
+    return;
+  }
   try {
     await ensureModel();
     if (!wantRunning) return;
@@ -111,21 +137,31 @@ export async function startWake(handler) {
     set({ state: 'error', message: e.message || 'No se pudo activar' });
   }
 }
-export function stopWake() { wantRunning = false; stopMic('off'); }
+export function stopWake() { wantRunning = false; if (AriesNative) { AriesNative.stop().catch(() => {}); set({ state: 'off' }); return; } stopMic('off'); }
 /** Libera el micrófono mientras se dicta o se habla */
 export async function pauseWake() {
+  if (AriesNative) {
+    if (!wakePrefs().on) return;
+    await AriesNative.hold().catch(() => {});
+    await new Promise((r) => setTimeout(r, 450)); // que Android suelte el micrófono
+    return;
+  }
   if (!stream) return;
   await stopMic('paused');
   // En Android el micrófono tarda un momento en quedar libre para el dictado del sistema
   if (isAndroid) await new Promise((r) => setTimeout(r, 600));
 }
-export function resumeWake() { if (wantRunning && model && !stream && (!isAndroid || document.visibilityState === 'visible')) startMic().catch((e) => set({ state: 'error', message: e.message })); }
+export function resumeWake() { if (AriesNative) { if (wakePrefs().on) AriesNative.release().catch(() => {}); return; } if (wantRunning && model && !stream && (!isAndroid || document.visibilityState === 'visible')) startMic().catch((e) => set({ state: 'error', message: e.message })); }
 
-// En la tableta Android solo se escucha con la app en pantalla
+// Navegador: solo con la app en pantalla (en Android lo maneja el servicio nativo)
 document.addEventListener('visibilitychange', () => {
-  if (!wantRunning || !isAndroid) return;
+  if (!wantRunning || !isAndroid || AriesNative) return;
   if (document.visibilityState === 'visible') resumeWake(); else pauseWake();
 });
 
-export const wakeSupportedHere = () => !!(navigator.mediaDevices?.getUserMedia && window.indexedDB && (window.AudioContext || window.webkitAudioContext));
-export const wakeWhereNote = () => (isWindows ? 'En el PC funciona con la app abierta, minimizada o en la bandeja.' : isAndroid ? 'En la tableta funciona mientras la app está abierta en pantalla.' : '');
+export const wakeSupportedHere = () => !!AriesNative || !!(navigator.mediaDevices?.getUserMedia && window.indexedDB && (window.AudioContext || window.webkitAudioContext));
+export const wakeWhereNote = () => (isWindows ? 'En el PC funciona con la app abierta, minimizada o en la bandeja.' : isAndroid ? 'En la tableta escucha aunque la app esté cerrada o la pantalla apagada; Android muestra un aviso fijo mientras tanto.' : '');
+
+// ---------- Permisos y estado del servicio nativo (tableta) ----------
+export const nativePermissions = () => (AriesNative ? AriesNative.permissions() : Promise.resolve(null));
+export const openNativeSetting = (which) => AriesNative?.openSetting({ which });

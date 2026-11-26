@@ -10,6 +10,7 @@ import { canDictate, listen, speak, stopSpeaking } from '../voice.js';
 import { pauseWake, resumeWake } from '../wakeword.js';
 import { printerIp, pollPrinter } from '../printer.js';
 import { sound } from '../sound.js';
+import { faceEvent, onFaceRequest, faceOpen } from '../face.js';
 
 const LS = 'organizador-ia-chat';
 let chat = (() => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } })();
@@ -19,6 +20,12 @@ let micState = 'idle'; // idle | listening | transcribing
 let voicePending = false;
 /** Lo llama la palabra "Aries": abre el asistente y empieza a escuchar */
 export function requestVoiceStart() { voicePending = true; }
+let currentEl = null;
+// La carita pide escuchar (botón de micrófono o seguir la conversación) o se cierra
+onFaceRequest((kind) => {
+  if (kind === 'listen' && currentEl?.isConnected) { if (micState === 'idle' && !busy) toggleMic(currentEl, { fromWake: true }); }
+  else if (kind === 'close') { if (micState === 'listening') mic?.stop(); stopSpeaking(); }
+});
 const VOICE_LS = 'organizador-ia-voz';
 const VOICE_MODES = { dictado: 'Voz al dictar', siempre: 'Voz siempre', apagada: 'Sin voz' };
 let voiceMode = (() => { try { return localStorage.getItem(VOICE_LS) || 'dictado'; } catch { return 'dictado'; } })();
@@ -138,19 +145,84 @@ function runAction(a) {
   }
 }
 
+// ---------- Confirmar por voz o chat ----------
+const CONFIRM_WINDOW = 2 * 60000; // la confirmación vale para la propuesta de los últimos 2 minutos
+const DANGER = new Set(['borrar', 'impresora']); // tipos que siempre piden una segunda confirmación
+const YES = /^(si+|sip|sisas|claro|dale|de una|hazlo|hagale|hagalo|confirm\w*|ok|okay|listo|perfecto|adelante|vale|correcto|agregal\w*|agrega\w*|crealo\w*|guardal\w*|eso es|esta bien|todo bien|aprobado)\b/;
+const NO = /^(no+|nop|nel|cancela\w*|dejalo|deja asi|olvidalo|olvida\w*|mejor no|ninguna?|descarta\w*|borra eso)\b/;
+const PARTIAL = /\b(solo|solamente|menos|excepto|sin|primer\w*|segund\w*|tercer\w*|cuart\w*|ultim\w*|unicamente|cambia|pero)\b/;
+
+/** Propuestas que siguen pendientes: las de la última respuesta del asistente, si es reciente */
+function pendingProposal() {
+  for (let i = chat.length - 1; i >= 0; i--) {
+    const m = chat[i];
+    if (m.role !== 'assistant') continue;
+    if (m.error || !(m.actions || []).length) return null;
+    if (!m.at || Date.now() - m.at > CONFIRM_WINDOW) return null;
+    const open = m.actions.filter((a) => !a._done && !a._dropped);
+    return open.length ? { m, open } : null;
+  }
+  return null;
+}
+
+/** ¿Es una respuesta corta de sí o no? Devuelve 'yes', 'no' o null (si es otra cosa o elige solo algunas) */
+function quickAnswer(text) {
+  const t = norm(text).replace(/[^a-z0-9ñ ]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!t || t.split(' ').length > 8 || PARTIAL.test(t)) return null;
+  if (NO.test(t)) return 'no';
+  if (YES.test(t)) return 'yes';
+  return null;
+}
+
+const listJoin = (xs) => (xs.length <= 1 ? xs.join('') : xs.slice(0, -1).join(', ') + ' y ' + xs.at(-1));
+
+/** Ejecuta propuestas; devuelve la frase de resumen */
+function runProposals(list, { force = false } = {}) {
+  const done = [], failed = [], risky = [];
+  for (const a of list) {
+    if (DANGER.has(a.tipo) && !force) { risky.push(a); continue; }
+    try { runAction(a); a._done = true; done.push(actionLabel(a)?.t || a.tipo); }
+    catch (err) { failed.push(`${actionLabel(a)?.t || a.tipo}${err?.message ? ' (' + err.message + ')' : ''}`); }
+  }
+  if (done.length) { sound('complete'); commit(); }
+  const parts = [];
+  if (done.length) parts.push(`Listo, ${done.length === 1 ? 'quedó agregado' : 'quedaron agregados'}: ${listJoin(done)}.`);
+  if (failed.length) parts.push(`No pude con: ${listJoin(failed)}.`);
+  if (risky.length) parts.push(`${listJoin(risky.map((a) => actionLabel(a)?.t || a.tipo))} necesita que lo confirmes con el botón, porque no se puede deshacer.`);
+  return parts.join(' ') || 'No había nada pendiente por agregar.';
+}
+
+/** Respuesta local (sin IA) y lectura en voz alta si corresponde */
+function localReply(el, content, spoken) {
+  chat.push({ role: 'assistant', content, at: Date.now() });
+  saveChat();
+  draw(el);
+  if (spoken) { faceEvent('speaking', { text: content }); pauseWake(); speak(content, () => { faceEvent('spoke'); resumeWake(); }); }
+  else { faceEvent('idle', { text: content }); resumeWake(); }
+}
+
 async function send(el, text, { byVoice = false } = {}) {
   if (busy || !text.trim()) return;
   stopSpeaking();
-  busy = true;
+  const pend = pendingProposal();
+  const spokenNow = (byVoice && voiceMode !== 'apagada') || voiceMode === 'siempre';
   chat.push({ role: 'user', content: text.trim() });
   saveChat();
+  faceEvent('heard', { text: text.trim() });
+  // Atajo: "confirmo" / "no" sobre la propuesta pendiente, sin preguntarle a la IA
+  const quick = pend ? quickAnswer(text) : null;
+  if (quick === 'yes') { localReply(el, runProposals(pend.open), spokenNow); return; }
+  if (quick === 'no') { for (const a of pend.open) a._dropped = true; localReply(el, pend.open.length === 1 ? 'Listo, la descarté.' : 'Listo, las descarté.', spokenNow); return; }
+  busy = true;
   draw(el);
+  faceEvent('thinking');
   try {
     const cfg = aiConfig();
     // Si pregunta por la impresora, se consulta en ese momento (máximo 3 s)
     if (/impres|impresora|printer/i.test(text) && printerIp()) await Promise.race([pollPrinter(), new Promise((r) => setTimeout(r, 3000))]);
     const spoken = (byVoice && voiceMode !== 'apagada') || voiceMode === 'siempre';
-    const system = SYSTEM + (spoken ? '\n\n# Respuesta hablada\nEsta respuesta se va a leer en voz alta. Escribe "respuesta" como hablaría una persona: frases cortas y naturales, en tono cercano, sin listas, viñetas, negritas, emojis ni símbolos. Máximo 3 o 4 frases, salvo que te pidan más detalle.' : '') + '\n\n# Datos del usuario\n' + buildContext(text, PROVIDERS[cfg.provider].budget);
+    const pendNote = pend ? `\n\n# Propuestas pendientes de confirmar\nEn tu respuesta anterior propusiste esto y el usuario aún no lo ha confirmado:\n${pend.open.map((a, i) => `${i + 1}. ${actionLabel(a)?.t}${actionLabel(a)?.s ? ' (' + actionLabel(a).s + ')' : ''}`).join('\n')}\nSi el usuario acepta o rechaza algunas (por ejemplo "solo la primera" o "todas menos el examen"), agrega al JSON "confirmar": [números] con las que acepta y "descartar": [números] con las que rechaza, y en "respuesta" dile en una frase qué se agregó. No las repitas en "acciones". Si pide cambiar algo de una propuesta, descártala y propón la versión corregida en "acciones".` : '';
+    const system = SYSTEM + pendNote + (spoken ? '\n\n# Respuesta hablada\nEsta respuesta se va a leer en voz alta. Escribe "respuesta" como hablaría una persona: frases cortas y naturales, en tono cercano, sin listas, viñetas, negritas, emojis ni símbolos. Máximo 3 o 4 frases, salvo que te pidan más detalle.' : '') + '\n\n# Datos del usuario\n' + buildContext(text, PROVIDERS[cfg.provider].budget);
     const history = chat.slice(-9).map((m) => ({ role: m.role, content: m.role === 'assistant' ? JSON.stringify({ respuesta: m.content, acciones: [] }) : m.content }));
     let reply = parseJsonReply(await complete({ system, messages: history }));
     let actions = (Array.isArray(reply.acciones) ? reply.acciones : []).filter((a) => actionLabel(a));
@@ -160,15 +232,26 @@ async function send(el, text, { byVoice = false } = {}) {
       actions = (Array.isArray(reply.acciones) ? reply.acciones : []).filter((a) => actionLabel(a));
       if (!actions.length && claimsDone(reply.respuesta)) reply.respuesta = String(reply.respuesta) + '\n\n**Ojo:** no se agregó nada en la app. Intenta pedírmelo con más detalle.';
     }
-    const content = String(reply.respuesta || '').trim() || (actions.length ? 'Te propongo esto:' : 'No tengo una respuesta para eso.');
-    chat.push({ role: 'assistant', content, actions: actions.map((a) => ({ ...a, _id: Math.random().toString(36).slice(2), _done: false })) });
-    if ((byVoice && voiceMode !== 'apagada') || voiceMode === 'siempre') {
+    // Confirmaciones parciales que decidió la IA
+    let extra = '';
+    if (pend) {
+      const pick = (arr) => (Array.isArray(arr) ? arr : []).map(Number).filter((n) => n >= 1 && n <= pend.open.length).map((n) => pend.open[n - 1]);
+      const yes = pick(reply.confirmar), no = pick(reply.descartar);
+      for (const a of no) a._dropped = true;
+      if (yes.length) { const r = runProposals(yes); if (!/listo/i.test(String(reply.respuesta || ''))) extra = r; }
+    }
+    const content = [String(reply.respuesta || '').trim(), extra].filter(Boolean).join(' ') || (actions.length ? 'Te propongo esto:' : 'No tengo una respuesta para eso.');
+    chat.push({ role: 'assistant', content, at: Date.now(), actions: actions.map((a) => ({ ...a, _id: Math.random().toString(36).slice(2), _done: false })) });
+    if (spoken) {
       pauseWake();
-      speak(content + (actions.length && !/confirm/i.test(content) ? ` Te dejé ${actions.length === 1 ? 'una propuesta' : actions.length + ' propuestas'} para que confirmes.` : ''), () => resumeWake());
-    } else { sound('xp'); resumeWake(); }
+      const say = content + (actions.length && !/confirm/i.test(content) ? ` ¿Lo confirmas?` : '');
+      faceEvent('speaking', { text: content, pending: actions.length });
+      speak(say, () => { faceEvent('spoke', { pending: actions.length }); resumeWake(); });
+    } else { sound('xp'); faceEvent('idle', { text: content }); resumeWake(); }
   } catch (e) {
     chat.push({ role: 'assistant', content: e.message || 'No se pudo responder.', error: true });
     sound('error');
+    faceEvent('error', { text: e.message || 'No se pudo responder.' });
   }
   busy = false;
   saveChat();
@@ -194,8 +277,9 @@ async function toggleMic(el, { fromWake = false } = {}) {
   await pauseWake();
   try {
     if (!fromWake) sound('start'); // con "Aries" ya sonó al activarse
-    mic = await listen({ onLevel: (l) => { if (micState === 'listening') setMic(el, 'listening', l); }, onStopped: () => setMic(el, 'transcribing') });
+    mic = await listen({ onLevel: (l) => { if (micState === 'listening') { setMic(el, 'listening', l); faceEvent('listening', { level: l }); } }, onStopped: () => { setMic(el, 'transcribing'); faceEvent('transcribing'); } });
     setMic(el, 'listening');
+    faceEvent('listening', { level: 0 });
     mic.done.then(() => {}, () => {});
     const watch = setInterval(() => { if (micState === 'listening' && !el.isConnected) mic?.stop(); }, 1000);
     const doneP = mic.done;
@@ -203,7 +287,7 @@ async function toggleMic(el, { fromWake = false } = {}) {
     const text = await Promise.race([doneP, new Promise((r) => setTimeout(r, 70000))]).finally(() => clearInterval(watch));
     setMic(el, 'idle');
     mic = null;
-    if (!text) { toast('No te escuché. Intenta de nuevo.'); resumeWake(); return; }
+    if (!text) { if (faceOpen()) faceEvent('nothing'); else toast('No te escuché. Intenta de nuevo.'); resumeWake(); return; }
     const input = el.querySelector('[data-in]');
     if (input) input.value = '';
     send(el, text, { byVoice: true });
@@ -212,6 +296,7 @@ async function toggleMic(el, { fromWake = false } = {}) {
     mic = null;
     resumeWake();
     toast(e.message || 'No se pudo usar el micrófono', { ms: 5000 });
+    faceEvent('error', { text: e.message || 'No se pudo usar el micrófono' });
     sound('error');
   }
 }
@@ -221,7 +306,7 @@ function draw(el) {
   if (!box) return;
   box.innerHTML = chat.length ? chat.map((m, i) => m.role === 'user'
     ? `<div class="msg me">${esc(m.content)}</div>`
-    : `<div class="msg ai ${m.error ? 'err' : ''}">${md(m.content)}${(m.actions || []).length ? `<div class="acts">${m.actions.map((a) => { const L = actionLabel(a); return `<div class="act">${icon(L.ic, 17)}<div class="grow"><div class="title">${esc(L.t)}</div>${L.s ? `<div class="meta">${esc(L.s)}</div>` : ''}</div>${a._done ? `<span class="pill ok">${icon('check', 12)} Agregado</span>` : `<button class="btn sm primary" data-act="${i}:${esc(a._id)}">Agregar</button>`}</div>`; }).join('')}${m.actions.filter((a) => !a._done).length > 1 ? `<button class="btn sm" data-actall="${i}" style="align-self:flex-start">Agregar todo</button>` : ''}</div>` : ''}</div>`).join('')
+    : `<div class="msg ai ${m.error ? 'err' : ''}">${md(m.content)}${(m.actions || []).length ? `<div class="acts">${m.actions.map((a) => { const L = actionLabel(a); return `<div class="act">${icon(L.ic, 17)}<div class="grow"><div class="title">${esc(L.t)}</div>${L.s ? `<div class="meta">${esc(L.s)}</div>` : ''}</div>${a._done ? `<span class="pill ok">${icon('check', 12)} Agregado</span>` : a._dropped ? '<span class="pill">Descartado</span>' : `<button class="btn sm primary" data-act="${i}:${esc(a._id)}">Agregar</button>`}</div>`; }).join('')}${m.actions.filter((a) => !a._done && !a._dropped).length > 1 ? `<button class="btn sm" data-actall="${i}" style="align-self:flex-start">Agregar todo</button>` : ''}</div>` : ''}</div>`).join('')
     + (busy ? `<div class="msg ai typing"><span></span><span></span><span></span></div>` : '')
     : `<div class="empty">${icon('sparkles', 30)}<div>Pregúntame por tu semana, pídeme que agende algo o cuéntame qué comiste.</div></div>`;
   box.scrollTop = box.scrollHeight;
@@ -229,8 +314,10 @@ function draw(el) {
 }
 
 export function render(el) {
+  currentEl = el;
   const cfg = aiConfig();
   if (!aiReady()) {
+    if (voicePending) { voicePending = false; faceEvent('error', { text: 'Primero configura el asistente en Ajustes → Asistente de IA.' }); }
     el.innerHTML = `<div class="page-head"><div><div class="sub">Con inteligencia artificial</div><h1>Asistente</h1></div></div>
       <div class="card">${`<div class="empty">${icon('sparkles', 34)}<h2>Configura tu asistente</h2><p class="muted" style="max-width:520px">Elige un proveedor de IA y pega tu clave. Groq y Gemini tienen planes gratuitos; Claude se paga por uso. La clave se guarda solo en este dispositivo.</p><button class="btn primary" data-goset>Ir a Ajustes → Asistente</button></div>`}</div>`;
     el.onclick = (e) => { if (e.target.closest('[data-goset]')) { window.go('ajustes'); setTimeout(() => document.querySelector('[data-aicard]')?.scrollIntoView({ behavior: 'smooth' }), 150); } };
@@ -266,9 +353,9 @@ export function render(el) {
     else if (b.dataset.act || b.dataset.actall) {
       const [mi, aid] = (b.dataset.act || b.dataset.actall + ':').split(':');
       const m = chat[Number(mi)];
-      const list = aid ? m.actions.filter((a) => a._id === aid) : m.actions.filter((a) => !a._done);
+      const list = aid ? m.actions.filter((a) => a._id === aid) : m.actions.filter((a) => !a._done && !a._dropped);
       let ok = 0;
-      for (const a of list) { try { runAction(a); a._done = true; ok++; } catch (err) { toast(`No se pudo: ${actionLabel(a)?.t || ''}${err?.message ? ' (' + err.message + ')' : ''}`); } }
+      for (const a of list) { try { runAction(a); a._done = true; delete a._dropped; ok++; } catch (err) { toast(`No se pudo: ${actionLabel(a)?.t || ''}${err?.message ? ' (' + err.message + ')' : ''}`); } }
       if (ok) { sound('complete'); toast(ok === 1 ? 'Agregado' : `${ok} elementos agregados`, { icon: 'check' }); }
       saveChat();
       commit();
