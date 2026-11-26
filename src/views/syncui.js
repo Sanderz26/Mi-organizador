@@ -148,7 +148,7 @@ export function syncCardHtml() {
     return `<div class="card">${head}
       <p class="small">Mantén tus dispositivos con los mismos datos. Todo se guarda en tu propio Google Drive, incluidos tus archivos.</p>
       <div class="split" style="margin-top:12px">${googleAvailable() ? googleBtn() : ''}
-        <details style="flex-basis:100%"><summary class="small muted" style="cursor:pointer;margin-top:8px">${googleAvailable() ? 'Otra forma: con Apps Script (avanzado)' : 'Conectar con Apps Script'}</summary>
+        <details style="flex-basis:100%" ${googleAvailable() ? "" : "open"}><summary class="small muted" style="cursor:pointer;margin-top:8px">${googleAvailable() ? 'Otra forma: con Apps Script (avanzado)' : 'Conectar con Apps Script'}</summary>
           <div class="split" style="margin-top:10px"><button class="btn sm" data-syncsetup>Configurar (primer dispositivo)</button><button class="btn sm" data-synccode>Tengo un código</button></div></details></div></div>`;
   }
   const acc = googleAccount();
