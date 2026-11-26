@@ -147,7 +147,12 @@ export function pickFile(accept = '*/*', multiple = false) {
 // ---------- Red (sin restricciones de CORS en las apps instaladas) ----------
 const parseJson = (t) => {
   if (t && typeof t === 'object') return t;
-  try { return JSON.parse(t); } catch { throw new Error('Google no devolvió datos. Revisa que la implementación diga "Cualquier persona".'); }
+  try { return JSON.parse(t); } catch { /* respuesta HTML de Google: se explica abajo */ }
+  const s = String(t || '');
+  if (/Script function not found|doGet|no se encontr/i.test(s)) throw new Error('Google no encontró el código. Pega el código completo, guarda con el ícono del disquete y crea una implementación NUEVA (Implementar → Nueva implementación).');
+  if (/accounts\.google\.com|ServiceLogin|signin|Iniciar sesi/i.test(s)) throw new Error('Google pide iniciar sesión: en la implementación, "Quién tiene acceso" debe ser "Cualquier persona" (no "Cualquier persona con cuenta de Google"). Si usas el correo de la universidad, puede que no lo permita: usa tu Gmail personal.');
+  if (/authoriz|autoriz|permission|permiso/i.test(s)) throw new Error('Falta autorizar el programa. En Apps Script toca Ejecutar una vez y acepta los permisos.');
+  throw new Error('Google respondió algo inesperado. Revisa que la URL sea la de "Aplicación web" y termine en /exec.');
 };
 export async function httpJson(method, url, body) {
   return parseJson(await httpRaw(method, url, body));

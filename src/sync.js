@@ -17,8 +17,9 @@ const setStatus = (s) => { status = { ...s, at: s.at || status.at }; listeners.f
 export const syncConfigured = () => !!(state.settings.syncUrl && state.settings.syncKey);
 export const connectionCode = () => (syncConfigured() ? `${state.settings.syncUrl}#${state.settings.syncKey}` : '');
 export function parseConnectionCode(code) {
-  const c = String(code || '').trim();
-  const m = c.match(/^(https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec)(?:#([A-Za-z0-9_-]{16,}))?$/);
+  const c = String(code || '').replace(/\s+/g, '');
+  // Acepta cuentas personales (/macros/s/…) y de universidad o empresa (/a/macros/dominio/s/…)
+  const m = c.match(/(https:\/\/script\.google\.com\/(?:a\/macros\/[^/?#]+|macros)\/s\/[A-Za-z0-9_-]+\/exec)(?:\?[^#]*)?(?:#([A-Za-z0-9_-]{16,}))?/);
   return m ? { url: m[1], key: m[2] || '' } : null;
 }
 

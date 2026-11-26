@@ -73,7 +73,7 @@ export function setupDialog() {
   ov.querySelector('[data-cancel]').onclick = () => ov.close();
   ov.querySelector('[data-go]').onclick = (e) => {
     const p = parseConnectionCode(ov.querySelector('[data-url]').value);
-    if (!p) { ov.querySelector('[data-err]').textContent = 'Pega la URL completa que termina en /exec.'; sound('error'); return; }
+    if (!p) { ov.querySelector('[data-err]').textContent = 'Ese enlace no parece el de la aplicación web. Debe empezar por https://script.google.com/ y terminar en /exec (no uses el enlace del editor ni el ID de implementación).'; sound('error'); return; }
     connect(p.url, p.key || key, ov, e.currentTarget);
   };
 }
