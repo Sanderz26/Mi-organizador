@@ -2,7 +2,7 @@
 // Cada registro gana por su cambio más reciente; lo borrado queda marcado para no "revivir".
 
 export const LISTS = ['semesters', 'subjects', 'topics', 'studySessions', 'exercises', 'notes', 'files', 'tasks', 'events', 'meals', 'gymSessions', 'weights', 'clients', 'sales', 'expenses', 'products', 'xpLog'];
-export const LOCAL_SETTINGS = ['closeToTray', 'autostart'];
+export const LOCAL_SETTINGS = ['closeToTray', 'autostart', 'syncMode', 'syncUrl', 'syncKey'];
 const TOMB_DAYS = 120;
 
 /** Estado → mapa plano clave → valor */

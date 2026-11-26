@@ -172,6 +172,30 @@ async function httpRaw(method, url, body) {
   return r.text();
 }
 
+/**
+ * Petición HTTP general. body es texto; con binary:true la respuesta llega en base64.
+ * Devuelve { status, text } o { status, b64 }.
+ */
+export async function httpRequest({ method = 'GET', url, headers = {}, body = null, binary = false }) {
+  if (isWindows) {
+    const r = await native.request({ method, url, headers, body, binary });
+    if (r.error) throw new Error('Sin conexión (' + r.error + ')');
+    return r;
+  }
+  if (isAndroid) {
+    const r = await CapacitorHttp.request({ method, url, headers, data: body ?? undefined, responseType: binary ? 'arraybuffer' : 'text', connectTimeout: 30000, readTimeout: 120000 });
+    return binary ? { status: r.status, b64: String(r.data || '').replace(/\s+/g, '') } : { status: r.status, text: typeof r.data === 'string' ? r.data : JSON.stringify(r.data) };
+  }
+  const r = await fetch(url, { method, headers, body: body ?? undefined });
+  if (binary) {
+    const buf = new Uint8Array(await r.arrayBuffer());
+    let s = '';
+    for (let i = 0; i < buf.length; i += 0x8000) s += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+    return { status: r.status, b64: btoa(s) };
+  }
+  return { status: r.status, text: await r.text() };
+}
+
 export async function attachmentExists(meta) {
   try {
     if (isWindows) return await native.fileExists(meta.id);

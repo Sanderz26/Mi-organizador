@@ -4,6 +4,8 @@ import { merge, sameDocs } from './syncmodel.js';
 import { httpJson, attachmentExists, readAttachmentB64, writeAttachmentB64, onAppPause } from './platform.js';
 import { icon } from './icons.js';
 import { esc } from './util.js';
+import { driveBackend } from './drive.js';
+import { googleSignedIn, googleAccount } from './google.js';
 
 const LS_LAST = 'organizador-ultima-sync';
 let status = { state: 'off' };
@@ -14,8 +16,11 @@ export const onSyncStatus = (fn) => listeners.add(fn);
 export const syncStatus = () => status;
 const setStatus = (s) => { status = { ...s, at: s.at || status.at }; listeners.forEach((fn) => fn(status)); drawChip(); };
 
-export const syncConfigured = () => !!(state.settings.syncUrl && state.settings.syncKey);
-export const connectionCode = () => (syncConfigured() ? `${state.settings.syncUrl}#${state.settings.syncKey}` : '');
+const scriptConfigured = () => !!(state.settings.syncUrl && state.settings.syncKey);
+/** 'google' (botón Conectar con Google), 'script' (puente Apps Script) o '' */
+export const syncMode = () => (state.settings.syncMode === 'google' && googleSignedIn() ? 'google' : scriptConfigured() ? 'script' : '');
+export const syncConfigured = () => !!syncMode();
+export const connectionCode = () => (scriptConfigured() ? `${state.settings.syncUrl}#${state.settings.syncKey}` : '');
 export function parseConnectionCode(code) {
   const c = String(code || '').replace(/\s+/g, '');
   // Acepta cuentas personales (/macros/s/…) y de universidad o empresa (/a/macros/dominio/s/…)
@@ -25,6 +30,24 @@ export function parseConnectionCode(code) {
 
 const get = (params) => httpJson('GET', `${state.settings.syncUrl}?k=${encodeURIComponent(state.settings.syncKey)}${params || ''}`);
 const post = (body) => httpJson('POST', state.settings.syncUrl, { k: state.settings.syncKey, ...body });
+
+/** Puente Apps Script con la misma interfaz que Drive */
+const scriptBackend = {
+  async getData() {
+    const r = await get('');
+    if (!r || r.ok !== true) throw new Error(r?.error === 'clave' ? 'La clave no coincide' : 'Respuesta inesperada del servidor');
+    return { rev: r.rev, data: r.data };
+  },
+  async putData(base, text) {
+    const w = await post({ a: 'put', base, data: text });
+    if (w?.ok) return { ok: true };
+    if (w?.error === 'conflicto') return { ok: false, conflict: true };
+    throw new Error('No se pudo guardar en Drive');
+  },
+  async putFile(f, b64) { const r = await post({ a: 'archivo', id: f.id, name: f.name, mime: f.mime, b64 }); return { ok: !!r?.ok }; },
+  async getFile(id) { const r = await get(`&a=archivo&id=${encodeURIComponent(id)}`); return r?.ok ? r.b64 : null; },
+};
+const backend = () => (syncMode() === 'google' ? driveBackend : scriptBackend);
 
 /** Prueba la conexión: devuelve { ok, empty } */
 export async function testConnection(url, key) {
@@ -39,8 +62,8 @@ async function doSync() {
   try {
     let uploaded = false;
     for (let attempt = 0; attempt < 3; attempt++) {
-      const r = await get('');
-      if (!r || r.ok !== true) throw new Error(r?.error === 'clave' ? 'La clave no coincide' : 'Respuesta inesperada del servidor');
+      const be = backend();
+      const r = await be.getData();
       const remote = r.data ? JSON.parse(r.data) : { docs: {}, meta: {}, del: {} };
       const mine = localCopy();
       let merged = merge(mine, remote);
@@ -49,9 +72,8 @@ async function doSync() {
       merged = merge(mine2, merged);
       if (!sameDocs(merged, mine2)) applyMerged(merged);
       if (r.data && sameDocs(merged, remote)) { uploaded = true; break; }
-      const w = await post({ a: 'put', base: r.rev, data: JSON.stringify({ v: 1, ...merged, savedAt: Date.now() }) });
-      if (w?.ok) { uploaded = true; break; }
-      if (w?.error !== 'conflicto') throw new Error('No se pudo guardar en Drive');
+      const w = await be.putData(r.rev, JSON.stringify({ v: 1, ...merged, savedAt: Date.now() }));
+      if (w.ok) { uploaded = true; break; }
     }
     if (!uploaded) throw new Error('Otro dispositivo estaba guardando; se reintentará');
     await syncFiles();
@@ -64,20 +86,23 @@ async function doSync() {
 
 /** Sube los adjuntos nuevos y descarga los que faltan en este dispositivo */
 async function syncFiles() {
+  // Cada archivo recuerda a qué nube se subió, para poder cambiar de método sin perder adjuntos
+  const dest = syncMode() === 'google' ? 'g:' + (googleAccount()?.email || '') : 's:' + state.settings.syncUrl.slice(-16);
+  const uploadedTo = (f) => f.cloudAt || (f.cloud && dest.startsWith('s:') ? dest : '');
   let marked = false, got = false;
   for (const f of state.files.slice()) {
     const here = await attachmentExists(f);
-    if (here && !f.cloud) {
+    if (here && uploadedTo(f) !== dest) {
       if (f.size > 45 * 1024 * 1024) continue;
       const b64 = await readAttachmentB64(f);
-      const r = await post({ a: 'archivo', id: f.id, name: f.name, mime: f.mime, b64 });
-      if (r?.ok) { const cur = state.files.find((x) => x.id === f.id); if (cur) { cur.cloud = true; marked = true; } }
-    } else if (!here && f.cloud) {
-      const r = await get(`&a=archivo&id=${encodeURIComponent(f.id)}`);
-      if (r?.ok && r.b64) { await writeAttachmentB64(f, r.b64); got = true; }
+      const r = await backend().putFile(f, b64);
+      if (r?.ok) { const cur = state.files.find((x) => x.id === f.id); if (cur) { cur.cloudAt = dest; cur.cloud = true; marked = true; } }
+    } else if (!here && uploadedTo(f) === dest) {
+      const b64 = await backend().getFile(f.id);
+      if (b64) { await writeAttachmentB64(f, b64); got = true; }
     }
   }
-  if (marked || got) commit(); // el aviso de "ya está en la nube" se sincroniza en la próxima vuelta
+  if (marked || got) commit();
 }
 
 export function syncNow() {
@@ -109,7 +134,7 @@ export function startSync() {
 
 export function lastSyncText() {
   const s = status;
-  if (s.state === 'off') return 'Sincronización desactivada';
+  if (s.state === 'off') return syncConfigured() ? 'Conectado; sincronizando en un momento…' : 'Sincronización desactivada';
   if (s.state === 'syncing') return 'Sincronizando…';
   if (s.state === 'error') return 'Sin sincronizar: ' + (s.message || 'error');
   const at = s.at || Number(localStorage.getItem(LS_LAST) || 0);

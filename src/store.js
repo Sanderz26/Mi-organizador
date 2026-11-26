@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS = {
   printerWatts: 120,
   kwhCost: 850,
   closeToTray: true,
+  syncMode: '',
   syncUrl: '',
   syncKey: '',
   autostart: false,

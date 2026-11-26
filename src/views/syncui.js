@@ -3,7 +3,8 @@ import { state, commit } from '../store.js';
 import { icon } from '../icons.js';
 import { esc, openModal, toast, confirmModal } from '../util.js';
 import { appsScriptCode } from '../syncscript.js';
-import { testConnection, syncNow, connectionCode, parseConnectionCode, syncConfigured, lastSyncText } from '../sync.js';
+import { testConnection, syncNow, connectionCode, parseConnectionCode, syncConfigured, syncMode, lastSyncText, onSyncStatus } from '../sync.js';
+import { googleAvailable, googleSignIn, googleSignOut, googleAccount } from '../google.js';
 import { shareText, isAndroid } from '../platform.js';
 import { sound } from '../sound.js';
 
@@ -33,6 +34,7 @@ async function connect(url, key, ov, btn) {
     await testConnection(url, key);
     state.settings.syncUrl = url;
     state.settings.syncKey = key;
+    state.settings.syncMode = 'script';
     try { localStorage.removeItem('clave-sync-pendiente'); } catch { /* */ }
     commit();
     ov.close();
@@ -109,26 +111,61 @@ export function showCodeDialog(afterSetup = false) {
   ov.querySelector('[data-share]')?.addEventListener('click', () => shareText('Código de sincronización', code));
 }
 
+export async function connectGoogle(btn) {
+  const label = btn?.innerHTML;
+  if (btn) { btn.disabled = true; btn.textContent = 'Abriendo Google…'; }
+  try {
+    const acc = await googleSignIn();
+    state.settings.syncMode = 'google';
+    commit();
+    sound('levelup');
+    toast(`Tus datos se guardan en la carpeta "Organizador" de tu Drive (${acc.email || 'tu cuenta'}).`, { title: 'Conectado con Google', icon: 'circle-check', ms: 5000 });
+    await syncNow();
+  } catch (e) {
+    sound('error');
+    openModal({ title: 'No se pudo conectar', body: `<p>${esc(e.message || 'Error desconocido')}</p><p class="small muted">Si se repite, mándale una captura de este mensaje a quien te instaló la app.</p>` });
+  } finally {
+    if (btn?.isConnected) { btn.disabled = false; btn.innerHTML = label; }
+  }
+}
+
 export async function disconnect() {
+  const google = syncMode() === 'google';
   if (!(await confirmModal('Este dispositivo dejará de sincronizarse. Tus datos se quedan aquí y en tu Drive.', 'Desconectar'))) return;
+  if (google) await googleSignOut();
+  state.settings.syncMode = '';
   state.settings.syncUrl = '';
   state.settings.syncKey = '';
   commit();
 }
 
+const googleBtn = (label = 'Conectar con Google') => `<button class="btn primary sm" data-google><svg width="16" height="16" viewBox="0 0 48 48" aria-hidden="true"><path fill="#fff" d="M44.5 20H24v8.5h11.8C34.7 33.9 30.1 37 24 37c-7.2 0-13-5.8-13-13s5.8-13 13-13c3.1 0 5.9 1.1 8.1 2.9l6.4-6.4C34.6 4.1 29.6 2 24 2 11.8 2 2 11.8 2 24s9.8 22 22 22c11 0 21-8 21-22 0-1.3-.2-2.7-.5-4z"/></svg> ${label}</button>`;
+
 export function syncCardHtml() {
-  if (!syncConfigured()) {
-    return `<div class="card"><div class="card-head"><h2>${icon('repeat', 18)} Sincronización con Google Drive</h2></div>
-      <p class="small">Mantén el PC y la tableta con los mismos datos. Todo se guarda en tu propio Google Drive, incluidos tus archivos.</p>
-      <div class="split" style="margin-top:12px"><button class="btn primary sm" data-syncsetup>Configurar (primer dispositivo)</button><button class="btn sm" data-synccode>Tengo un código</button></div></div>`;
+  const mode = syncMode();
+  const head = `<div class="card-head"><h2>${icon('repeat', 18)} Sincronización con Google Drive</h2>${mode ? '<span class="pill ok">Activa</span>' : ''}</div>`;
+  if (!mode) {
+    return `<div class="card">${head}
+      <p class="small">Mantén tus dispositivos con los mismos datos. Todo se guarda en tu propio Google Drive, incluidos tus archivos.</p>
+      <div class="split" style="margin-top:12px">${googleAvailable() ? googleBtn() : ''}
+        <details style="flex-basis:100%"><summary class="small muted" style="cursor:pointer;margin-top:8px">${googleAvailable() ? 'Otra forma: con Apps Script (avanzado)' : 'Conectar con Apps Script'}</summary>
+          <div class="split" style="margin-top:10px"><button class="btn sm" data-syncsetup>Configurar (primer dispositivo)</button><button class="btn sm" data-synccode>Tengo un código</button></div></details></div></div>`;
   }
-  return `<div class="card"><div class="card-head"><h2>${icon('repeat', 18)} Sincronización con Google Drive</h2><span class="pill ok">Activa</span></div>
-    <p class="small" data-syncmsg>${esc(lastSyncText())}</p>
+  const acc = googleAccount();
+  return `<div class="card">${head}
+    <p class="small">${mode === 'google' ? `Conectado con <b>${esc(acc?.email || 'tu cuenta de Google')}</b> · carpeta "Organizador" de tu Drive` : 'Conectado con tu puente de Apps Script · carpeta "Organizador - sincronización"'}</p>
+    <p class="small" data-syncmsg style="margin-top:4px">${esc(lastSyncText())}</p>
     <p class="small muted" style="margin:6px 0 12px">Se sincroniza al abrir la app, unos segundos después de cada cambio y cada 3 minutos.</p>
-    <div class="split"><button class="btn primary sm" data-syncnow2>${icon('repeat', 15)} Sincronizar ahora</button><button class="btn sm" data-synccodeshow>Código para otro dispositivo</button><button class="btn ghost sm danger" data-syncoff>Desconectar</button></div></div>`;
+    <div class="split"><button class="btn primary sm" data-syncnow2>${icon('repeat', 15)} Sincronizar ahora</button>${mode === 'script' ? `<button class="btn sm" data-synccodeshow>Código para otro dispositivo</button>${googleAvailable() ? googleBtn('Cambiar a Conectar con Google') : ''}` : ''}<button class="btn ghost sm danger" data-syncoff>Desconectar</button></div>
+    ${mode === 'script' && googleAvailable() ? '<p class="tiny faint" style="margin-top:8px">Si cambias a Google, haz el cambio en todos tus dispositivos: tus datos pasan a la carpeta "Organizador" sin perder nada.</p>' : ''}</div>`;
 }
 
+let liveMsg = null;
+onSyncStatus(() => { if (liveMsg?.isConnected) liveMsg.textContent = lastSyncText(); });
+
 export function bindSyncCard(el) {
+  liveMsg = el.querySelector('[data-syncmsg]');
+  el.querySelector('[data-google]')?.addEventListener('click', (e) => connectGoogle(e.currentTarget));
   el.querySelector('[data-syncsetup]')?.addEventListener('click', setupDialog);
   el.querySelector('[data-synccode]')?.addEventListener('click', codeDialog);
   el.querySelector('[data-synccodeshow]')?.addEventListener('click', () => showCodeDialog(false));

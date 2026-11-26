@@ -128,6 +128,33 @@ ipcMain.handle('http', async (_e, method, url, body) => {
     return { status: r.status, text: await r.text() };
   } catch (e) { return { error: String(e?.message || e) }; }
 });
+ipcMain.handle('request', async (_e, { method, url, headers, body, binary }) => {
+  try {
+    if (!/^https:\/\//.test(url)) return { error: 'URL no válida' };
+    const r = await net.fetch(url, { method, headers, body: body ?? undefined, redirect: 'follow' });
+    if (binary) return { status: r.status, b64: Buffer.from(await r.arrayBuffer()).toString('base64') };
+    return { status: r.status, text: await r.text() };
+  } catch (e) { return { error: String(e?.message || e) }; }
+});
+// Inicio de sesión con Google: abre el navegador y recibe la respuesta en un puerto local
+ipcMain.handle('google:auth', (_e, authUrlBase) => new Promise((resolve) => {
+  const http = require('http');
+  let done = false;
+  const server = http.createServer((req, res) => {
+    const u = new URL(req.url, 'http://127.0.0.1');
+    if (u.pathname !== '/') { res.writeHead(404); res.end(); return; }
+    const code = u.searchParams.get('code'), err = u.searchParams.get('error'), state = u.searchParams.get('state');
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(`<!DOCTYPE html><meta charset="utf-8"><title>Organizador</title><body style="font-family:Segoe UI,system-ui;display:grid;place-items:center;height:90vh;color:#16181d"><div style="text-align:center"><h2>${code ? 'Listo, ya puedes volver a Organizador' : 'No se completó el inicio de sesión'}</h2><p style="color:#5b6170">Puedes cerrar esta pestaña.</p></div>`);
+    if (!done) { done = true; server.close(); showWin(); resolve(code ? { code, state, redirectUri } : { error: err || 'cancelado' }); }
+  });
+  let redirectUri = '';
+  server.listen(0, '127.0.0.1', () => {
+    redirectUri = `http://127.0.0.1:${server.address().port}`;
+    shell.openExternal(authUrlBase + '&redirect_uri=' + encodeURIComponent(redirectUri));
+  });
+  setTimeout(() => { if (!done) { done = true; server.close(); resolve({ error: 'tiempo' }); } }, 5 * 60000);
+}));
 ipcMain.handle('file:delete', (_e, id) => { try { fs.unlinkSync(path.join(attachDir, safeId(id))); } catch { /* */ } return true; });
 ipcMain.handle('file:open', async (_e, id, name) => {
   const dir = path.join(app.getPath('temp'), 'organizador');
