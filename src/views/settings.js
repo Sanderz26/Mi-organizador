@@ -1,5 +1,5 @@
 // Ajustes, respaldo y restauración
-import { state, commit, applySettings, applyData, flush } from '../store.js';
+import { state, commit, applySettings, applyData, flush, unblockWrites } from '../store.js';
 import { icon } from '../icons.js';
 import { esc, toast, todayKey, confirmModal } from '../util.js';
 import { exportText, pickFile, ensureNotifyPermission, showNotification, setAutostart, isWindows, isAndroid, platformName } from '../platform.js';
@@ -86,6 +86,7 @@ export function render(el) {
         const data = JSON.parse(await file.text());
         if (!data || typeof data !== 'object' || !data.settings) throw new Error('formato');
         if (!(await confirmModal('Esto reemplaza todos los datos de este dispositivo por los del respaldo. ¿Continuar?', 'Restaurar'))) return;
+        unblockWrites();
         applyData(data);
         applySettings();
         await flush();

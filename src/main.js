@@ -1,5 +1,5 @@
 // Punto de entrada: estructura, navegación y arranque
-import { state, loadState, onChange, flush, flushSync, applySettings } from './store.js';
+import { state, loadState, onChange, flush, flushSync, applySettings, isWriteBlocked } from './store.js';
 import { icon } from './icons.js';
 import { esc, hasModal, fmtSec, openModal } from './util.js';
 import { destroyCharts } from './charts.js';
@@ -124,6 +124,7 @@ async function boot() {
     exitApp();
   });
   render();
+  if (isWriteBlocked()) openModal({ title: 'No se pudieron leer tus datos', body: '<p>El archivo de datos parece dañado. Para protegerlo, la app no guardará cambios en esta sesión. Restaura un respaldo desde Ajustes o escríbeme para recuperarlo.</p>' });
   startReminderLoop();
   syncHolidaysOnline().then((changed) => { if (changed && !hasModal()) render(); });
 }

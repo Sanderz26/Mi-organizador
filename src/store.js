@@ -1,5 +1,5 @@
 // Estado de la app, guardado local y utilidades de datos
-import { readData, writeData, writeDataSync } from './platform.js';
+import { readData, writeData, writeDataSync, readBackups } from './platform.js';
 import { soundConfig } from './sound.js';
 import { uid } from './util.js';
 
@@ -26,6 +26,7 @@ export const DEFAULT_SETTINGS = {
 
 const DEFAULTS = () => ({
   version: 1,
+  savedAt: 0,
   settings: { ...DEFAULT_SETTINGS },
   subjects: [], topics: [], studySessions: [], exercises: [],
   notes: [], files: [],
@@ -43,11 +44,18 @@ const listeners = new Set();
 export const onChange = (fn) => listeners.add(fn);
 
 export async function loadState() {
-  try {
-    const raw = await readData();
-    if (raw) applyData(JSON.parse(raw));
-  } catch (e) {
-    console.error('No se pudieron leer los datos', e);
+  let raw = null;
+  try { raw = await readData(); } catch (e) { console.error('No se pudieron leer los datos', e); }
+  if (raw) {
+    try { applyData(JSON.parse(raw)); }
+    catch (e) {
+      console.error('Archivo de datos dañado', e);
+      let ok = false;
+      const backups = (await readBackups()).map((t) => { try { return JSON.parse(t); } catch { return null; } }).filter(Boolean);
+      backups.sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+      if (backups[0]) { applyData(backups[0]); ok = true; }
+      if (!ok) writeBlocked = true; // no sobrescribir datos que quizá se puedan recuperar
+    }
   }
   applySettings();
 }
@@ -68,6 +76,9 @@ export function applySettings() {
 }
 
 let saveTimer = null;
+let writeBlocked = false;
+export const isWriteBlocked = () => writeBlocked;
+export const unblockWrites = () => { writeBlocked = false; };
 let saving = Promise.resolve();
 export function save() {
   clearTimeout(saveTimer);
@@ -76,12 +87,14 @@ export function save() {
 export function flush() {
   clearTimeout(saveTimer);
   saveTimer = null;
+  if (writeBlocked) return saving;
+  state.savedAt = Date.now();
   const text = JSON.stringify(state);
   saving = saving.then(() => writeData(text)).catch((e) => console.error('Error al guardar', e));
   return saving;
 }
 export function flushSync() {
-  if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; writeDataSync(JSON.stringify(state)); }
+  if (saveTimer && !writeBlocked) { clearTimeout(saveTimer); saveTimer = null; writeDataSync(JSON.stringify(state)); }
 }
 
 /** Guarda y vuelve a dibujar la vista actual */

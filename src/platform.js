@@ -34,14 +34,31 @@ export async function readData() {
   try { return localStorage.getItem(LS_KEY); } catch { return null; }
 }
 
+let lastBackupDay = '';
 export async function writeData(text) {
   if (isWindows) return native.writeData(text);
   if (isAndroid) {
-    await Filesystem.writeFile({ path: DATA_FILE + '.tmp', data: text, directory: Directory.Data, encoding: Encoding.UTF8 });
-    await Filesystem.rename({ from: DATA_FILE + '.tmp', to: DATA_FILE, directory: Directory.Data, toDirectory: Directory.Data });
+    await Filesystem.writeFile({ path: DATA_FILE, data: text, directory: Directory.Data, encoding: Encoding.UTF8 });
+    // copia de seguridad diaria dentro de la tableta
+    const day = new Date().toISOString().slice(0, 10);
+    if (lastBackupDay !== day) {
+      lastBackupDay = day;
+      try { await Filesystem.writeFile({ path: 'copia-' + (new Date().getDay()) + '.json', data: text, directory: Directory.Data, encoding: Encoding.UTF8 }); } catch { /* */ }
+    }
     return;
   }
   try { localStorage.setItem(LS_KEY, text); } catch { /* sin espacio */ }
+}
+
+/** Copias de respaldo locales (por si el archivo principal se daña) */
+export async function readBackups() {
+  const out = [];
+  if (isAndroid) {
+    for (let i = 0; i < 7; i++) {
+      try { out.push((await Filesystem.readFile({ path: `copia-${i}.json`, directory: Directory.Data, encoding: Encoding.UTF8 })).data); } catch { /* */ }
+    }
+  }
+  return out;
 }
 
 export function writeDataSync(text) {
