@@ -50,10 +50,23 @@ export async function listen({ onLevel, onStopped } = {}) {
   if (await nativeRecognitionAvailable()) {
     const perm = await SpeechRecognition.requestPermissions().catch(() => null);
     if (perm && perm.speechRecognition && perm.speechRecognition !== 'granted') throw new Error('Permite el micrófono para dictar.');
-    const done = SpeechRecognition.start({ language: 'es-CO', maxResults: 1, partialResults: false, popup: false })
-      .then((r) => (r?.matches?.[0] || '').trim())
-      .catch((e) => { if (/no match|didn't understand|7/i.test(String(e?.message || e))) return ''; throw new Error('No se pudo escuchar: ' + (e?.message || e)); });
-    return { done, stop: () => SpeechRecognition.stop().catch(() => {}) };
+    let stopped = false;
+    const once = () => SpeechRecognition.start({ language: 'es-CO', maxResults: 1, partialResults: false, popup: false })
+      .then((r) => ({ text: (r?.matches?.[0] || '').trim() }), (err) => ({ text: '', err }));
+    // Si el dictado se corta casi al instante (micrófono aún ocupado, ruido del pitido), se reintenta solo
+    const done = (async () => {
+      for (let i = 0; i < 3; i++) {
+        const t0 = Date.now();
+        const r = await once();
+        if (r.text || stopped) return r.text;
+        const msg = String(r.err?.message || r.err || '');
+        if (Date.now() - t0 < 2500 && i < 2) { await new Promise((ok) => setTimeout(ok, 500)); if (stopped) return ''; continue; }
+        if (!r.err || /no match|didn't understand|timeout|busy|\b[5678]\b/i.test(msg)) return '';
+        throw new Error('No se pudo escuchar: ' + msg);
+      }
+      return '';
+    })();
+    return { done, stop: () => { stopped = true; return SpeechRecognition.stop().catch(() => {}); } };
   }
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }

@@ -182,15 +182,15 @@ function setMic(el, st, level = 0) {
   if (input) input.placeholder = st === 'listening' ? 'Escuchando… habla y haz una pausa al terminar' : st === 'transcribing' ? 'Entendiendo lo que dijiste…' : 'Escribe o toca el micrófono para hablar';
 }
 
-async function toggleMic(el) {
+async function toggleMic(el, { fromWake = false } = {}) {
   if (micState === 'listening') { mic?.stop(); return; }
   if (micState === 'transcribing' || busy) return;
   const ok = await canDictate();
   if (!ok.ok) { toast(ok.why, { ms: 5000 }); sound('error'); resumeWake(); return; }
   stopSpeaking();
-  pauseWake();
+  await pauseWake();
   try {
-    sound('start');
+    if (!fromWake) sound('start'); // con "Aries" ya sonó al activarse
     mic = await listen({ onLevel: (l) => { if (micState === 'listening') setMic(el, 'listening', l); }, onStopped: () => setMic(el, 'transcribing') });
     setMic(el, 'listening');
     mic.done.then(() => {}, () => {});
@@ -271,6 +271,6 @@ export function render(el) {
       commit();
     }
   };
-  if (voicePending) { voicePending = false; setTimeout(() => toggleMic(el), 250); }
+  if (voicePending) { voicePending = false; setTimeout(() => toggleMic(el, { fromWake: true }), 250); }
   else if (window.innerWidth > 860) input.focus();
 }

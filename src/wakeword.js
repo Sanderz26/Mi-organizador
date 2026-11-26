@@ -92,9 +92,10 @@ function stopMic(next = 'paused') {
   try { proc?.disconnect(); } catch { /* */ }
   try { rec?.remove?.(); } catch { /* */ }
   stream?.getTracks().forEach((t) => t.stop());
-  ctx?.close().catch(() => {});
+  const closing = ctx?.close().catch(() => {}) || Promise.resolve();
   stream = ctx = proc = rec = null;
   set({ state: next });
+  return closing;
 }
 
 /** Enciende la escucha (descarga el modelo la primera vez) */
@@ -112,7 +113,12 @@ export async function startWake(handler) {
 }
 export function stopWake() { wantRunning = false; stopMic('off'); }
 /** Libera el micrófono mientras se dicta o se habla */
-export function pauseWake() { if (stream) stopMic('paused'); }
+export async function pauseWake() {
+  if (!stream) return;
+  await stopMic('paused');
+  // En Android el micrófono tarda un momento en quedar libre para el dictado del sistema
+  if (isAndroid) await new Promise((r) => setTimeout(r, 600));
+}
 export function resumeWake() { if (wantRunning && model && !stream && (!isAndroid || document.visibilityState === 'visible')) startMic().catch((e) => set({ state: 'error', message: e.message })); }
 
 // En la tableta Android solo se escucha con la app en pantalla
