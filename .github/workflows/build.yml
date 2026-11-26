@@ -4,6 +4,7 @@ name: Generar instaladores
 on:
   push:
     branches: [main]
+    paths-ignore: ['docs/**', 'README.md']
   workflow_dispatch:
 
 permissions:
