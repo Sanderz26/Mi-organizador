@@ -40,6 +40,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+          cache: gradle
       - name: Preparar la llave de firma
         run: |
           if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
@@ -54,7 +55,12 @@ jobs:
         working-directory: android
         run: |
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon --stacktrace
+          # Reintenta si el servidor de librerías limita las descargas (error 429)
+          for i in 1 2 3; do
+            ./gradlew assembleRelease --no-daemon --stacktrace && exit 0
+            echo "Reintento $i en 60 s…"; sleep 60
+          done
+          exit 1
         env:
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: ${{ env.APP_VERSION }}
