@@ -100,7 +100,7 @@ export async function listen({ onLevel, onStopped } = {}) {
 
 // ---------- Lectura en voz alta ----------
 const PREF = 'organizador-voz';
-export function voicePrefs() { try { return { name: '', rate: 1, engine: '', ...JSON.parse(localStorage.getItem(PREF) || '{}') }; } catch { return { name: '', rate: 1, engine: '' }; } }
+export function voicePrefs() { const d = { name: '', rate: 1, pitch: 1, engine: '' }; try { return { ...d, ...JSON.parse(localStorage.getItem(PREF) || '{}') }; } catch { return d; } }
 /** 'azure' si hay clave de Azure y no se eligió la voz del dispositivo */
 export function voiceEngine() { const e = voicePrefs().engine; return e === 'sistema' ? 'sistema' : azureReady() ? 'azure' : 'sistema'; }
 export function setVoicePrefs(p) { try { localStorage.setItem(PREF, JSON.stringify({ ...voicePrefs(), ...p })); } catch { /* */ } }
@@ -155,7 +155,7 @@ let azureWarned = false;
 async function speakAzure(t, pref, finish, opts) {
   const my = gen;
   let b64;
-  try { b64 = await synthesize(t, { rate: pref.rate || 1, voice: opts.azureVoice }); }
+  try { b64 = await synthesize(t, { rate: pref.rate || 1, pitch: pref.pitch || 1, voice: opts.azureVoice, style: opts.style }); }
   catch (e) {
     if (opts.strict) throw e;
     if (!azureWarned) { azureWarned = true; toast('Voz de Azure no disponible: ' + e.message + ' Uso la voz del dispositivo.', { ms: 6000 }); }
@@ -192,7 +192,7 @@ export async function speak(text, onEnd, opts = {}) {
   if (isAndroid) {
     let voice;
     if (pref.name) { try { const vs = (await TextToSpeech.getSupportedVoices()).voices || []; const i = vs.findIndex((v) => (v.voiceURI || v.name) === pref.name); if (i >= 0) voice = i; } catch { /* */ } }
-    try { await TextToSpeech.speak({ text: t, lang: 'es-CO', rate: pref.rate || 1, pitch: 1.0, volume: 1.0, ...(voice !== undefined ? { voice } : {}) }); }
+    try { await TextToSpeech.speak({ text: t, lang: 'es-CO', rate: pref.rate || 1, pitch: pref.pitch || 1, volume: 1.0, ...(voice !== undefined ? { voice } : {}) }); }
     catch { try { await TextToSpeech.speak({ text: t, lang: 'es-ES', rate: pref.rate || 1 }); } catch { /* sin voz */ } }
     finish();
     return;
@@ -205,6 +205,7 @@ export async function speak(text, onEnd, opts = {}) {
   u.lang = v?.lang || 'es-ES';
   try { if (v) u.voice = v; } catch { /* voz no válida: se usa la del idioma */ }
   u.rate = pref.rate || 1;
+  u.pitch = pref.pitch || 1;
   u.onend = finish;
   u.onerror = finish;
   synth.speak(u);

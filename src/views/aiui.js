@@ -4,11 +4,22 @@ import { esc, toast } from '../util.js';
 import { PROVIDERS, aiConfig, localAiConfig, saveAiConfig, setAiShared, listModels, rankModels, complete } from '../ai.js';
 import { commit, state } from '../store.js';
 import { listVoices, voicePrefs, setVoicePrefs, speak, prettyVoice, canDictate, voiceEngine } from '../voice.js';
-import { REGIONS, normRegion, azureConfig, localAzure, saveAzure, setAzureShared, fetchVoices, prettyAzure, usage, FREE_CHARS } from '../azuretts.js';
+import { REGIONS, normRegion, azureConfig, localAzure, saveAzure, setAzureShared, fetchVoices, prettyAzure, usage, FREE_CHARS, styleFor, setStyleFor, voiceInfo, styleName } from '../azuretts.js';
 import { wakePrefs, setWakePrefs, startWake, stopWake, wakeStatus, onWakeStatus, deleteWakeModel, wakeSupportedHere, wakeWhereNote } from '../wakeword.js';
 import { sound } from '../sound.js';
 
 const pickModel = (provider, list) => rankModels(provider, list)[0] || PROVIDERS[provider].model;
+
+const pitchLabel = (p) => (Math.abs(p - 1) < 0.01 ? 'normal' : p > 1 ? `+${Math.round((p - 1) * 100)}% (más agudo)` : `${Math.round((p - 1) * 100)}% (más grave)`);
+
+function styleOptions(voiceId) {
+  const v = voiceInfo(voiceId);
+  const list = v?.styles || [];
+  if (v?.hd) return '<option value="">Automático (las voces HD ponen la emoción solas)</option>';
+  if (!list.length) return '<option value="">Normal (esta voz no tiene estilos)</option>';
+  const cur = styleFor(voiceId);
+  return `<option value="">Normal</option>` + list.map((st) => `<option value="${esc(st)}" ${st === cur ? 'selected' : ''}>${esc(styleName(st))}</option>`).join('');
+}
 
 function azVoiceOptions(az) {
   const list = az.voices || [];
@@ -48,11 +59,13 @@ export function aiCardHtml() {
         <div class="full field"><label class="checkline"><input type="checkbox" data-azshare ${az.shared ? 'checked' : ''}> Usar esta clave en mis otros dispositivos</label></div>
         <div class="full split"><button class="btn primary sm" data-aztest>${icon('check', 15)} Probar y guardar</button>${az.key ? '<button class="btn ghost sm danger" data-azdel>Quitar clave</button>' : ''}<span class="small muted" data-azmsg></span></div>
         <div class="field"><label>Voz de Azure</label><select data-azvoice>${azVoiceOptions(az)}</select><div class="hint">Al elegir una, la escuchas.</div></div>
+        <div class="field"><label>Estilo</label><select data-azstyle>${styleOptions(az.voice || 'es-CO-SalomeNeural')}</select><div class="hint">Cambia la emoción con la que habla. Para una voz tipo caricatura prueba "Alegre" o "Emocionada/o" con el tono alto.</div></div>
         <div class="field"><label>Uso este mes (este dispositivo)</label><div class="small" style="min-height:40px;display:flex;flex-direction:column;justify-content:center;gap:6px"><span>${used.toLocaleString('es-CO')} de ${FREE_CHARS.toLocaleString('es-CO')} caracteres gratis</span><div class="bar"><i style="width:${Math.min(100, (used / FREE_CHARS) * 100).toFixed(1)}%"></i></div></div><div class="hint">Si se acaba el cupo o falla internet, se usa la voz del dispositivo.</div></div>
       </div>
       <div class="field" data-sysvoice ${eng === 'azure' ? 'hidden' : ''}><label>Voz</label><select data-voice><option value="">Cargando voces…</option></select><div class="hint">Las voces son las que trae este dispositivo; cada uno guarda su elección.</div></div>
       <div class="field"><label>Velocidad: <span data-ratev>${voicePrefs().rate.toFixed(2)}</span>×</label><input type="range" data-rate min="0.7" max="1.5" step="0.05" value="${voicePrefs().rate}"><div class="hint">El micrófono está en el chat del asistente.</div></div>
-      <div class="full split"><button class="btn sm" data-voicetest>${icon('player-play', 15)} Escuchar ejemplo</button></div>
+      <div class="field"><label>Tono: <span data-pitchv>${pitchLabel(voicePrefs().pitch)}</span></label><input type="range" data-pitch min="0.6" max="1.5" step="0.05" value="${voicePrefs().pitch}"><div class="hint">Más grave ← → más agudo. Muy agudo suena a personaje animado.</div></div>
+      <div class="full split"><button class="btn sm" data-voicetest>${icon('player-play', 15)} Escuchar ejemplo</button><button class="btn ghost sm" data-voicereset>Velocidad y tono normales</button></div>
       <div class="full" style="margin-top:6px"><h3 style="display:flex;align-items:center;gap:8px">${icon('microphone', 16)} Activar con la palabra "Aries"</h3></div>
       <div class="full field"><label class="checkline"><input type="checkbox" data-wake ${wakePrefs().on ? 'checked' : ''} ${wakeSupportedHere() ? '' : 'disabled'}> Escuchar "Aries" para abrir el asistente y empezar a hablar</label>
         <div class="hint">La palabra se detecta dentro del dispositivo: tu audio no sale de aquí hasta que dices "Aries". La primera vez descarga un modelo de voz en español (34 MB). ${esc(wakeWhereNote())}</div></div>
@@ -130,10 +143,24 @@ export function bindAiCard(el, rerender) {
   q('[data-azvoice]').addEventListener('change', (e) => {
     saveAzure({ voice: e.target.value });
     if (azureConfig().shared) shareAz();
+    q('[data-azstyle]').innerHTML = styleOptions(e.target.value);
     speak('Hola, así sonarán mis respuestas.', null, { azureVoice: e.target.value, strict: true }).catch((err) => { toast(err.message, { ms: 6000 }); sound('error'); });
   });
+  q('[data-azstyle]').addEventListener('change', (e) => {
+    const v = azureConfig().voice || 'es-CO-SalomeNeural';
+    setStyleFor(v, e.target.value);
+    speak('¡Hola! Así sueno con este estilo. ¿Qué hacemos hoy?', null, { azureVoice: v, strict: true }).catch((err) => { toast(err.message, { ms: 6000 }); sound('error'); });
+  });
+  q('[data-pitch]').addEventListener('input', (e) => { q('[data-pitchv]').textContent = pitchLabel(Number(e.target.value)); });
+  q('[data-pitch]').addEventListener('change', (e) => { setVoicePrefs({ pitch: Number(e.target.value) }); speak('¿Así está bien mi tono de voz?'); });
+  q('[data-voicereset]').addEventListener('click', () => {
+    setVoicePrefs({ rate: 1, pitch: 1 });
+    q('[data-rate]').value = 1; q('[data-ratev]').textContent = '1.00';
+    q('[data-pitch]').value = 1; q('[data-pitchv]').textContent = pitchLabel(1);
+    speak('Listo, volví a la velocidad y el tono normales.');
+  });
   // Con la clave compartida desde otro dispositivo, la lista de voces se baja sola
-  { const az = azureConfig(); if (az.key && az.region && !(az.voices || []).length) fetchVoices(az.key, az.region).then((voices) => { saveAzure({ voices }); const sel = q('[data-azvoice]'); if (sel?.isConnected) sel.innerHTML = azVoiceOptions(azureConfig()); }).catch(() => {}); }
+  { const az = azureConfig(); if (az.key && az.region && (!(az.voices || []).length || !('styles' in (az.voices[0] || {})))) fetchVoices(az.key, az.region).then((voices) => { saveAzure({ voices }); const sel = q('[data-azvoice]'); if (sel?.isConnected) sel.innerHTML = azVoiceOptions(azureConfig()); const ss = q('[data-azstyle]'); if (ss?.isConnected) ss.innerHTML = styleOptions(azureConfig().voice || 'es-CO-SalomeNeural'); }).catch(() => {}); }
   q('[data-voice]').addEventListener('change', (e) => { setVoicePrefs({ name: e.target.value }); speak('Hola, así sonarán mis respuestas.'); });
   q('[data-rate]').addEventListener('input', (e) => { q('[data-ratev]').textContent = Number(e.target.value).toFixed(2); });
   q('[data-rate]').addEventListener('change', (e) => { setVoicePrefs({ rate: Number(e.target.value) }); speak('Así de rápido voy a hablar.'); });
