@@ -11,6 +11,7 @@ import { pauseWake, resumeWake } from '../wakeword.js';
 import { printerIp, pollPrinter } from '../printer.js';
 import { sound } from '../sound.js';
 import { faceEvent, onFaceRequest, faceOpen } from '../face.js';
+import { addMemory, findMemory } from '../memory.js';
 
 const LS = 'organizador-ia-chat';
 let chat = (() => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } })();
@@ -75,6 +76,8 @@ function actionLabel(a) {
     case 'entrenamiento': return { ic: 'barbell', t: `Entrenamiento: ${a.grupo || ''}`, s: [(a.ejercicios || []).map((e) => `${e.nombre} ${e.series || ''}x${e.reps || ''}${e.peso ? ' ' + e.peso + ' kg' : ''}`).join(', '), a.fecha].filter(Boolean).join(' · ') };
     case 'cliente': return { ic: 'user', t: `Cliente: ${a.nombre || ''}`, s: [a.telefono, a.ciudad].filter(Boolean).join(' · ') };
     case 'pedido': return { ic: 'receipt', t: `Pedido: ${a.descripcion || ''}`, s: [a.cliente, a.precio ? fmtMoney(a.precio) : '', a.estado].filter(Boolean).join(' · ') };
+    case 'recordar': return { ic: 'star', t: `Recordar: ${a.texto || ''}`, s: 'Memoria del asistente' };
+    case 'olvidar': { const m = findMemory(a.texto || ''); return { ic: 'trash', t: `Olvidar: ${m?.text || a.texto || ''}`, s: m ? 'Se borra de la memoria del asistente' : 'No encontré ese recuerdo' }; }
     case 'gasto': return { ic: 'cash', t: `${a.inversion ? 'Inversión' : 'Gasto'}: ${a.concepto || ''}`, s: [a.valor ? fmtMoney(a.valor) : '', a.categoria].filter(Boolean).join(' · ') };
     default: return null;
   }
@@ -139,6 +142,12 @@ function runAction(a) {
     upsert('sales', { date: date || todayKey(), clientId: client?.id || '', kind: 'impresion', desc: a.descripcion || 'Pedido', qty: Number(a.cantidad) || 1, price: Number(a.precio) || 0, material: a.material || 'PLA', grams: Number(a.gramos) || 0, hours: Number(a.horas) || 0, filamentCostKg: st.filamentCostKg, watts: st.printerWatts, kwhCost: st.kwhCost, status: ['cotizado', 'produccion', 'entregado', 'pagado'].includes(a.estado) ? a.estado : 'produccion' });
   } else if (a.tipo === 'gasto') {
     upsert('expenses', { date: date || todayKey(), concept: a.concepto || 'Gasto', amount: Number(a.valor) || 0, category: a.categoria || 'Otro', investment: !!a.inversion });
+  } else if (a.tipo === 'recordar') {
+    addMemory(a.texto);
+  } else if (a.tipo === 'olvidar') {
+    const m = findMemory(a.texto || '');
+    if (!m) throw new Error('No encontré ese recuerdo');
+    state.memories = state.memories.filter((x) => x.id !== m.id);
   } else if (a.tipo === 'comida') {
     const types = ['Desayuno', 'Media mañana', 'Almuerzo', 'Algo', 'Cena', 'Snack'];
     upsert('meals', { date: date || todayKey(), type: types.includes(a.comida) ? a.comida : 'Almuerzo', desc: a.descripcion || 'Comida', kcal: Math.round(Number(a.kcal) || 0), protein: Math.round(Number(a.proteina) || 0) });
@@ -241,7 +250,13 @@ async function send(el, text, { byVoice = false } = {}) {
       if (yes.length) { const r = runProposals(yes); if (!/listo/i.test(String(reply.respuesta || ''))) extra = r; }
     }
     const content = [String(reply.respuesta || '').trim(), extra].filter(Boolean).join(' ') || (actions.length ? 'Te propongo esto:' : 'No tengo una respuesta para eso.');
-    chat.push({ role: 'assistant', content, at: Date.now(), actions: actions.map((a) => ({ ...a, _id: Math.random().toString(36).slice(2), _done: false })) });
+    const acts = actions.map((a) => ({ ...a, _id: Math.random().toString(36).slice(2), _done: false }));
+    // "recordar" se guarda solo (se puede borrar en Ajustes); lo demás espera confirmación
+    let remembered = 0;
+    for (const a of acts) if (a.tipo === 'recordar') { try { runAction(a); a._done = true; remembered++; } catch { /* */ } }
+    if (remembered) commit();
+    chat.push({ role: 'assistant', content, at: Date.now(), actions: acts });
+    actions = acts.filter((a) => !a._done);
     if (spoken) {
       pauseWake();
       const say = content + (actions.length && !/confirm/i.test(content) ? ` ¿Lo confirmas?` : '');
@@ -306,7 +321,7 @@ function draw(el) {
   if (!box) return;
   box.innerHTML = chat.length ? chat.map((m, i) => m.role === 'user'
     ? `<div class="msg me">${esc(m.content)}</div>`
-    : `<div class="msg ai ${m.error ? 'err' : ''}">${md(m.content)}${(m.actions || []).length ? `<div class="acts">${m.actions.map((a) => { const L = actionLabel(a); return `<div class="act">${icon(L.ic, 17)}<div class="grow"><div class="title">${esc(L.t)}</div>${L.s ? `<div class="meta">${esc(L.s)}</div>` : ''}</div>${a._done ? `<span class="pill ok">${icon('check', 12)} Agregado</span>` : a._dropped ? '<span class="pill">Descartado</span>' : `<button class="btn sm primary" data-act="${i}:${esc(a._id)}">Agregar</button>`}</div>`; }).join('')}${m.actions.filter((a) => !a._done && !a._dropped).length > 1 ? `<button class="btn sm" data-actall="${i}" style="align-self:flex-start">Agregar todo</button>` : ''}</div>` : ''}</div>`).join('')
+    : `<div class="msg ai ${m.error ? 'err' : ''}">${md(m.content)}${(m.actions || []).length ? `<div class="acts">${m.actions.map((a) => { const L = actionLabel(a); return `<div class="act">${icon(L.ic, 17)}<div class="grow"><div class="title">${esc(L.t)}</div>${L.s ? `<div class="meta">${esc(L.s)}</div>` : ''}</div>${a._done ? `<span class="pill ok">${icon('check', 12)} ${a.tipo === 'recordar' ? 'Recordado' : 'Agregado'}</span>` : a._dropped ? '<span class="pill">Descartado</span>' : `<button class="btn sm primary" data-act="${i}:${esc(a._id)}">Agregar</button>`}</div>`; }).join('')}${m.actions.filter((a) => !a._done && !a._dropped).length > 1 ? `<button class="btn sm" data-actall="${i}" style="align-self:flex-start">Agregar todo</button>` : ''}</div>` : ''}</div>`).join('')
     + (busy ? `<div class="msg ai typing"><span></span><span></span><span></span></div>` : '')
     : `<div class="empty">${icon('sparkles', 30)}<div>Pregúntame por tu semana, pídeme que agende algo o cuéntame qué comiste.</div></div>`;
   box.scrollTop = box.scrollHeight;

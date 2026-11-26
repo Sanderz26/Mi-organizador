@@ -1,8 +1,9 @@
 // Ajustes del asistente: proveedor, clave y modelo (se guardan solo en este dispositivo)
 import { icon } from '../icons.js';
-import { esc, toast } from '../util.js';
+import { esc, toast, norm, confirmModal } from '../util.js';
 import { PROVIDERS, aiConfig, localAiConfig, saveAiConfig, setAiShared, listModels, rankModels, complete } from '../ai.js';
 import { commit, state } from '../store.js';
+import { addMemory, MAX_MEMORIES } from '../memory.js';
 import { listVoices, voicePrefs, setVoicePrefs, speak, prettyVoice, canDictate, voiceEngine } from '../voice.js';
 import { REGIONS, normRegion, azureConfig, localAzure, saveAzure, setAzureShared, fetchVoices, prettyAzure, usage, FREE_CHARS, styleFor, setStyleFor, voiceInfo, styleName } from '../azuretts.js';
 import { wakePrefs, setWakePrefs, startWake, stopWake, wakeStatus, onWakeStatus, deleteWakeModel, wakeSupportedHere, wakeWhereNote, AriesNative, nativePermissions, openNativeSetting } from '../wakeword.js';
@@ -31,6 +32,16 @@ function azVoiceOptions(az) {
   const rank = (g) => (g === HD ? 0 : g === MULTI ? 1 : g === 'Colombia' ? 2 : 3);
   const order = Object.keys(groups).sort((a, b) => rank(a) - rank(b) || a.localeCompare(b, 'es'));
   return order.map((g) => `<optgroup label="${esc(g)}">${groups[g].sort((a, b) => a.name.localeCompare(b.name)).map((v) => `<option value="${esc(v.id)}" ${v.id === cur ? 'selected' : ''}>${esc(prettyAzure(v))}</option>`).join('')}</optgroup>`).join('');
+}
+
+let memQ = ''; // se conserva aunque la pantalla se vuelva a dibujar
+function memListHtml(q) {
+  const all = state.memories.slice().sort((a, b) => (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0) || (b.created || '').localeCompare(a.created || ''));
+  const list = q ? all.filter((m) => norm(m.text).includes(norm(q))) : all;
+  if (!all.length) return '<p class="small muted" style="margin:0">Aún no recuerda nada.</p>';
+  return `${all.length > 8 ? `<input type="search" data-memq placeholder="Buscar en la memoria" value="${esc(q)}" style="margin-bottom:8px;width:100%">` : ''}
+    <div class="list" style="max-height:320px;overflow-y:auto">${list.map((m) => `<div class="row"><button class="btn ghost icon sm" data-mempin="${esc(m.id)}" title="${m.pinned ? 'Fijada: siempre la tiene en cuenta' : 'Fijar: tenerla siempre en cuenta'}" style="color:${m.pinned ? 'var(--warn)' : 'var(--ink-3)'}">${m.pinned ? icon('star', 16).replace('<svg', '<svg fill="currentColor"') : icon('star', 16)}</button><div class="grow small">${esc(m.text)}</div><span class="tiny faint">${esc(m.created || '')}</span><button class="btn ghost icon sm danger" data-memdel="${esc(m.id)}" aria-label="Olvidar">${icon('x', 15)}</button></div>`).join('') || '<p class="small muted">Nada coincide.</p>'}</div>
+    <div class="split tiny muted" style="margin-top:6px"><span>${all.length} de ${MAX_MEMORIES} · ${all.filter((m) => m.pinned).length} fijadas</span><button class="btn ghost sm danger" data-memclear>Borrar todo</button></div>`;
 }
 
 export function aiCardHtml() {
@@ -76,6 +87,10 @@ export function aiCardHtml() {
       <div class="field"><label>Sensibilidad</label><select data-wakesens>${[[0.9, 'Baja (menos activaciones por error)'], [0.8, 'Normal'], [0.7, 'Alta (te entiende de más lejos)']].map(([v, l]) => `<option value="${v}" ${Number(wakePrefs().sens) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
       <div class="field"><label>Estado</label><div class="small" data-wakestate style="min-height:40px;display:flex;align-items:center"></div></div>
       ${AriesNative ? '' : '<div class="full split"><button class="btn ghost sm" data-wakedel>Borrar modelo descargado</button></div>'}
+      <div class="full" style="margin-top:6px"><h3 style="display:flex;align-items:center;gap:8px">${icon('star', 16)} Memoria de Aries</h3>
+        <div class="hint">Dile "Aries, recuerda que…" o agrégalo aquí. Guarda hasta ${MAX_MEMORIES} cosas; en cada pregunta solo le envía a la IA las fijadas (★) y las relacionadas, así no gasta de más.</div></div>
+      <div class="full split" style="gap:8px"><input data-memnew placeholder="Ej: Los jueves no puedo ir al gimnasio" style="flex:1;min-width:200px"><button class="btn sm" data-memadd>${icon('plus', 15)} Agregar</button></div>
+      <div class="full" data-memwrap>${memListHtml(memQ)}</div>
       <p class="full tiny faint">La clave nunca va al código de la app. Si no marcas la casilla, queda solo en este dispositivo. Al usar el asistente, tu pregunta y un resumen de tus datos se envían al proveedor elegido.</p>
     </div></div>`;
 }
@@ -84,6 +99,19 @@ export function bindAiCard(el, rerender) {
   const card = el.querySelector('[data-aicard]');
   if (!card) return;
   const q = (s) => card.querySelector(s);
+  // Memoria de Aries
+  const paintMem = () => { const w = q('[data-memwrap]'); if (w) { w.innerHTML = memListHtml(memQ); const i = w.querySelector('[data-memq]'); if (i && memQ) { i.focus(); i.setSelectionRange(memQ.length, memQ.length); } } };
+  const addFromInput = () => { const i = q('[data-memnew]'); const v = i.value.trim(); if (!v) return; try { addMemory(v); commit(); i.value = ''; sound('complete'); paintMem(); } catch (e) { toast(e.message); } };
+  q('[data-memadd]').addEventListener('click', addFromInput);
+  q('[data-memnew]').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addFromInput(); } });
+  q('[data-memwrap]').addEventListener('input', (e) => { if (e.target.matches('[data-memq]')) { memQ = e.target.value; paintMem(); } });
+  q('[data-memwrap]').addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.mempin) { const m = state.memories.find((x) => x.id === b.dataset.mempin); if (m) { m.pinned = !m.pinned; commit(); paintMem(); } }
+    else if (b.dataset.memdel) { state.memories = state.memories.filter((x) => x.id !== b.dataset.memdel); commit(); sound('delete'); paintMem(); }
+    else if ('memclear' in b.dataset) { if (await confirmModal(`¿Borrar los ${state.memories.length} recuerdos de Aries?`, 'Borrar todo')) { state.memories = []; commit(); sound('delete'); paintMem(); } }
+  });
   // Activación por voz
   const wakeText = (s) => ({ off: 'Apagado', downloading: `Descargando modelo… ${s.pct || 0}%`, loading: 'Preparando…', listening: 'Escuchando: di "Aries"', paused: AriesNative ? s.message || 'En pausa' : 'En pausa (vuelve a escuchar al abrir la app)', error: s.message || 'Error' }[s.state] || '');
   const paintWake = (s) => { const w = card.querySelector('[data-wakestate]'); if (w?.isConnected) { w.textContent = wakeText(s); w.className = 'small ' + (s.state === 'listening' ? 'up' : s.state === 'error' ? 'down' : ''); } };

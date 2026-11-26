@@ -46,6 +46,7 @@ const DEFAULTS = () => ({
   gymSessions: [], weights: [],
   clients: [], sales: [], expenses: [], products: [], prints: [],
   xpLog: [],
+  memories: [],
   activeTimer: null,
   holidaysCache: {},
   _sync: { meta: {}, del: {} },

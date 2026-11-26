@@ -4,6 +4,7 @@ import { httpRequest } from './platform.js';
 import { levelInfo, xpOf, streakFor, gymWeeks, dietStreak } from './xp.js';
 import { agendaFor } from './agenda.js';
 import { printerContext } from './printer.js';
+import { memoryContext } from './memory.js';
 import { todayKey, toKey, addDays, parseKey, sum, weekKey, fmtMin, DAYS, MONTHS, nowHM, norm } from './util.js';
 
 export const PROVIDERS = {
@@ -173,6 +174,8 @@ export function buildContext(question = '', budget = 9000) {
   const s = state.settings;
   const L = [];
   L.push(`Hoy es ${fechaLarga(today)}, son las ${nowHM()}. Usuario: ${s.name || 'sin nombre'}. Moneda: pesos colombianos (COP).`);
+  const mem = memoryContext(question, Math.min(2500, Math.round(budget * 0.22)));
+  if (mem) L.push(mem);
   const sem = currentSemester();
   const subs = activeSubjects();
   L.push(`\n## Estudio (semestre ${sem?.name || ''})`);
@@ -259,6 +262,9 @@ Tipos de acción disponibles (omite los campos que no sepas):
 {"tipo":"cliente","nombre":"...","telefono":"...","ciudad":"..."}
 {"tipo":"pedido","cliente":"...","descripcion":"...","precio":45000,"cantidad":1,"material":"PLA","gramos":120,"horas":5,"estado":"cotizado|produccion|entregado|pagado","fecha":"AAAA-MM-DD"}
 {"tipo":"gasto","concepto":"...","valor":80000,"categoria":"Filamento","inversion":false,"fecha":"AAAA-MM-DD"}
+{"tipo":"recordar","texto":"dato breve y claro, ej. 'Los jueves no puede ir al gimnasio'"}
+{"tipo":"olvidar","texto":"el recuerdo que hay que borrar"}
+Memoria: usa "recordar" cuando el usuario diga "recuerda que", "no olvides", "ten en cuenta que" o te pida guardar algo sobre él para el futuro. Escríbelo corto y en tercera persona. "recordar" se guarda solo, sin confirmación: en "respuesta" di algo como "Listo, lo tendré en cuenta". Usa "olvidar" si pide olvidar algo. Usa siempre lo que está en "Lo que el usuario te pidió recordar" para personalizar tus respuestas y planes.
 Si el usuario solo pregunta algo, "acciones" va vacío.`;
 
 /** ¿La respuesta afirma haber hecho algo sin traer acciones? */
