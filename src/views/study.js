@@ -303,7 +303,7 @@ function renderSubject(el, s) {
         { label: 'Tiempo del ejercicio', data: list.map((x) => x.seconds), color: s.color },
         { label: 'Tendencia (promedio de 3)', data: moving, color: 'var(--ink-3)', dashed: true },
       ],
-      yFmt: (v) => fmtSec(v), min: 0,
+      yFmt: (v) => fmtSec(v), min: 0, pick: 'eficiencia',
     });
   }
   if (tab === 'apuntes') bindNotesBlock(el, s.id);

@@ -175,7 +175,7 @@ function resumen() {
           { label: 'Costos y gastos', data: sums.map((x) => x.costs + x.expenses), color: 'var(--ink-3)' },
           { label: 'Ganancia', data: sums.map((x) => x.profit), color: 'var(--accent)', type: 'line' },
         ],
-        yFmt: (v) => fmtMoney(v),
+        yFmt: (v) => fmtMoney(v), pick: 'negocio-meses', defaultVisible: 3,
       });
     },
   };

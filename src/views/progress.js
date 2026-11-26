@@ -12,7 +12,7 @@ let range = 90;
 
 export function render(el) {
   destroyCharts();
-  const areas = areaList();
+  const areas = areaList().sort((a, b) => xpOf(b.key) - xpOf(a.key));
   const totalXp = sum(areas, (a) => xpOf(a.key));
   const log = state.xpLog.slice().sort((a, b) => b.ts - a.ts).slice(0, 40);
 
@@ -52,12 +52,12 @@ export function render(el) {
   if (series.length) chart(el.querySelector('[data-xp]'), {
     kind: 'line', labels: series[0].s.labels.slice(from).map(fmtDate),
     series: series.map(({ a, s }) => ({ label: a.name, data: s.values.slice(from), color: a.color })),
-    min: 0,
+    min: 0, pick: 'xp',
   });
   if (subs.length) chart(el.querySelector('[data-study]'), {
     kind: 'bar', stacked: true, labels: weeks.map(fmtDate),
     series: subs.map((s) => ({ label: s.name, color: s.color, data: weeks.map((w) => Math.round((sum(state.studySessions.filter((x) => x.subjectId === s.id && weekKey(parseKey(x.date)) === w), (x) => x.minutes) / 60) * 10) / 10) })),
-    yFmt: (v) => v + ' h',
+    yFmt: (v) => v + ' h', pick: 'horas-estudio',
   });
   if (eff.length) chart(el.querySelector('[data-eff]'), {
     kind: 'bar', labels: eff.map((x) => `${topicName(x.t.id)} · ${subjectName(x.t.subjectId)}`.slice(0, 28)),
@@ -65,7 +65,7 @@ export function render(el) {
     yFmt: (v) => v + '%', legend: false,
   });
   chart(el.querySelector('[data-tasks]'), { kind: 'bar', labels: weeks.map(fmtDate), series: [{ label: 'Tareas', data: tasksDone, color: 'var(--accent)' }], legend: false, min: 0 });
-  chart(el.querySelector('[data-levels]'), { kind: 'bar', labels: areas.map((a) => a.name.slice(0, 16)), series: [{ label: 'Nivel', data: areas.map((a) => levelInfo(xpOf(a.key)).level), color: 'var(--accent)' }], legend: false, min: 0 });
+  chart(el.querySelector('[data-levels]'), { kind: 'bar', labels: areas.map((a) => a.name.slice(0, 16)), series: areas.map((a) => ({ label: a.name, data: areas.map((b) => (b.key === a.key ? levelInfo(xpOf(a.key)).level : null)), color: a.color })), stacked: true, min: 0, pick: 'niveles', defaultVisible: 8 });
 
   el.onclick = async (e) => {
     const t = e.target.closest('button');

@@ -157,7 +157,7 @@ export function render(el) {
   </div>`;
 
   if (weights.length > 1) chart(el.querySelector('[data-wchart]'), { kind: 'line', labels: weights.map((w) => fmtDate(w.date)), series: [{ label: 'Peso', data: weights.map((w) => w.kg), color: 'var(--c-gym)', fill: true }], yFmt: (v) => fmtNum(v) + ' kg' });
-  chart(el.querySelector('[data-schart]'), { kind: 'bar', labels: weeksL, series: [{ label: 'Entrenos', data: weeksV, color: 'var(--c-gym)' }, { label: 'Meta', data: weeksV.map(() => wk.goal), color: 'var(--ink-3)', type: 'line', dashed: true }], legend: false, min: 0 });
+  chart(el.querySelector('[data-schart]'), { kind: 'bar', labels: weeksL, series: [{ label: 'Entrenos', data: weeksV, color: 'var(--c-gym)' }, { label: 'Meta', data: weeksV.map(() => wk.goal), color: 'var(--ink-3)', type: 'line', dashed: true }], min: 0, pick: 'gym-semanas' });
 
   el.onclick = (e) => {
     const t = e.target.closest('[data-new],[data-weight],[data-ses],[data-fail],[data-bonus],[data-w]');

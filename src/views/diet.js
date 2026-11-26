@@ -153,7 +153,7 @@ export function render(el) {
     </div>
   </div>`;
 
-  chart(el.querySelector('[data-chart]'), { kind: 'bar', labels: L, series: [{ label: 'Calorías', data: V, color: 'var(--c-diet)' }, { label: 'Meta', data: L.map(() => ev.goal), color: 'var(--ink-3)', type: 'line', dashed: true }], legend: false, min: 0, yFmt: (v) => Number(v).toLocaleString('es-CO') });
+  chart(el.querySelector('[data-chart]'), { kind: 'bar', labels: L, series: [{ label: 'Calorías', data: V, color: 'var(--c-diet)' }, { label: 'Meta', data: L.map(() => ev.goal), color: 'var(--ink-3)', type: 'line', dashed: true }], min: 0, yFmt: (v) => Number(v).toLocaleString('es-CO'), pick: 'dieta-30' });
 
   el.onclick = (e) => {
     const t = e.target.closest('button,[data-meal]');
