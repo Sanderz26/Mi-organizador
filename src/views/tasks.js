@@ -21,7 +21,7 @@ export async function taskDialog(task = null, preset = {}) {
       { name: 'due', label: 'Fecha', type: 'date', value: t.due || '' },
       { name: 'dueTime', label: 'Hora', type: 'time', value: t.dueTime || '' },
       { name: 'category', label: 'Categoría', type: 'select', value: t.category, options: Object.entries(CATEGORIES).map(([v, l]) => ({ v, l })) },
-      { name: 'subjectId', label: 'Materia', type: 'select', value: t.subjectId || '', options: subjectOptions(true, 'Ninguna') },
+      { name: 'subjectId', label: 'Materia', type: 'select', value: t.subjectId || '', options: subjectOptions(true, 'Ninguna', t.subjectId) },
       { name: 'priority', label: 'Prioridad', type: 'select', value: t.priority, options: Object.entries(PRIORITY).map(([v, p]) => ({ v, l: p.l })) },
       { name: 'reminderMins', label: 'Recordatorio', type: 'select', value: t.reminderMins ?? '', options: REMINDER_OPTIONS },
       { name: 'repeat', label: 'Repetir', type: 'select', value: t.repeat || '', options: [{ v: '', l: 'No se repite' }, { v: 'daily', l: 'Cada día' }, { v: 'weekly', l: 'Cada semana' }, { v: 'monthly', l: 'Cada mes' }] },

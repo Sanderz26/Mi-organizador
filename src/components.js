@@ -109,10 +109,18 @@ export function bindThumbs(root, onRemove) {
   });
 }
 
-export const subjectOptions = (withNone = true, noneLabel = 'Sin materia') => [
-  ...(withNone ? [{ v: '', l: noneLabel }] : []),
-  ...state.subjects.filter((s) => !s.archived).map((s) => ({ v: s.id, l: s.name })),
-];
+/** Materias del semestre actual primero; las de otros semestres llevan su nombre de semestre */
+export const subjectOptions = (withNone = true, noneLabel = 'Sin materia', keepId = '') => {
+  const cur = state.settings.currentSemester;
+  const semName = (id) => state.semesters.find((x) => x.id === id)?.name || '';
+  const now = state.subjects.filter((s) => s.semesterId === cur && !s.archived);
+  const others = state.subjects.filter((s) => (s.semesterId !== cur || s.archived) && s.id === keepId);
+  return [
+    ...(withNone ? [{ v: '', l: noneLabel }] : []),
+    ...now.map((s) => ({ v: s.id, l: s.name })),
+    ...others.map((s) => ({ v: s.id, l: `${s.name} · ${semName(s.semesterId)}` })),
+  ];
+};
 
 export const REMINDER_OPTIONS = [
   { v: '', l: 'Sin recordatorio' }, { v: 0, l: 'A la hora' }, { v: 5, l: '5 minutos antes' }, { v: 15, l: '15 minutos antes' },

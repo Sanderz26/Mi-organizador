@@ -2,6 +2,8 @@
 const { app, BrowserWindow, ipcMain, dialog, shell, Tray, Menu, Notification, nativeImage } = require('electron');
 const path = require('path');
 const fs = require('fs');
+let autoUpdater = null;
+try { ({ autoUpdater } = require('electron-updater')); } catch { /* en desarrollo puede no estar */ }
 
 const APP_ID = 'com.roa.organizador';
 app.setAppUserModelId(APP_ID);
@@ -143,6 +145,38 @@ ipcMain.handle('notify', (_e, title, body) => {
 ipcMain.handle('autostart', (_e, on) => { app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] }); return true; });
 ipcMain.handle('closeToTray', (_e, on) => { closeToTray = !!on; return true; });
 
+// ---------- Actualizaciones automáticas (desde GitHub Releases) ----------
+let updateState = { state: 'idle' };
+const sendUpdate = (u) => { updateState = u; if (win && !win.isDestroyed()) win.webContents.send('update', u); };
+function setupUpdater() {
+  if (!autoUpdater || !app.isPackaged) return;
+  autoUpdater.autoDownload = true;
+  autoUpdater.autoInstallOnAppQuit = true;
+  autoUpdater.on('checking-for-update', () => sendUpdate({ state: 'checking' }));
+  autoUpdater.on('update-available', (i) => sendUpdate({ state: 'downloading', version: i.version, percent: 0 }));
+  autoUpdater.on('update-not-available', () => sendUpdate({ state: 'none' }));
+  autoUpdater.on('download-progress', (p) => sendUpdate({ ...updateState, state: 'downloading', percent: Math.round(p.percent) }));
+  autoUpdater.on('update-downloaded', (i) => {
+    sendUpdate({ state: 'ready', version: i.version });
+    if (Notification.isSupported()) {
+      const n = new Notification({ title: 'Actualización lista', body: `Versión ${i.version}. Se instala al reiniciar la app.`, icon: iconPath });
+      n.on('click', showWin);
+      n.show();
+    }
+  });
+  autoUpdater.on('error', (e) => sendUpdate({ state: 'error', message: String(e?.message || e).slice(0, 200) }));
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  setTimeout(check, 8000);
+  setInterval(check, 3 * 3600 * 1000);
+}
+ipcMain.handle('update:status', () => ({ ...updateState, current: app.getVersion(), packaged: app.isPackaged }));
+ipcMain.handle('update:check', async () => {
+  if (!autoUpdater || !app.isPackaged) return { state: 'dev' };
+  try { await autoUpdater.checkForUpdates(); } catch (e) { return { state: 'error', message: String(e?.message || e) }; }
+  return updateState;
+});
+ipcMain.handle('update:install', () => { quitting = true; autoUpdater?.quitAndInstall(true, true); });
+
 app.on('second-instance', showWin);
 app.whenReady().then(() => {
   try {
@@ -152,6 +186,7 @@ app.whenReady().then(() => {
   dailyBackup();
   createWindow();
   createTray();
+  setupUpdater();
 });
 app.on('before-quit', () => { quitting = true; });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !closeToTray) app.quit(); });

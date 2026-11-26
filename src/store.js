@@ -20,6 +20,7 @@ export const DEFAULT_SETTINGS = {
   kwhCost: 850,
   closeToTray: true,
   autostart: false,
+  currentSemester: '',
   heightCm: 0,
   targetWeight: 0,
 };
@@ -28,7 +29,7 @@ const DEFAULTS = () => ({
   version: 1,
   savedAt: 0,
   settings: { ...DEFAULT_SETTINGS },
-  subjects: [], topics: [], studySessions: [], exercises: [],
+  semesters: [], subjects: [], topics: [], studySessions: [], exercises: [],
   notes: [], files: [],
   tasks: [], events: [],
   meals: [], dietDays: {},
@@ -57,13 +58,45 @@ export async function loadState() {
       if (!ok) writeBlocked = true; // no sobrescribir datos que quizá se puedan recuperar
     }
   }
+  ensureSemesters();
   applySettings();
 }
+
+/** Nombre sugerido según la fecha: 2026-1 (ene–jun) o 2026-2 (jul–dic) */
+export const guessSemesterName = (d = new Date()) => `${d.getFullYear()}-${d.getMonth() < 6 ? 1 : 2}`;
+
+/** Garantiza que exista un semestre actual y que toda materia tenga semestre */
+export function ensureSemesters() {
+  if (!state.semesters.length) {
+    const withDates = state.subjects.find((s) => s.semesterStart || s.semesterEnd);
+    state.semesters.push({ id: uid(), name: guessSemesterName(), start: withDates?.semesterStart || '', end: withDates?.semesterEnd || '' });
+  }
+  if (!state.semesters.some((x) => x.id === state.settings.currentSemester)) {
+    state.settings.currentSemester = state.semesters[state.semesters.length - 1].id;
+  }
+  for (const s of state.subjects) if (!s.semesterId || !state.semesters.some((x) => x.id === s.semesterId)) s.semesterId = state.settings.currentSemester;
+}
+export const currentSemester = () => state.semesters.find((x) => x.id === state.settings.currentSemester) || state.semesters[0];
+export const semesterOf = (s) => state.semesters.find((x) => x.id === s?.semesterId);
+/** Materias del semestre actual que no están canceladas */
+export const activeSubjects = () => state.subjects.filter((s) => !s.archived && s.semesterId === state.settings.currentSemester);
+/** ¿La materia tiene clases en esa fecha según las fechas de su semestre? */
+export function subjectRunsOn(s, key) {
+  if (s.archived) return false;
+  const sem = semesterOf(s);
+  if (!sem) return true;
+  if (sem.start && key < sem.start) return false;
+  if (sem.end && key > sem.end) return false;
+  if (!sem.start && !sem.end) return sem.id === state.settings.currentSemester;
+  return true;
+}
+export const semesterSort = (a, b) => (b.start || b.name).localeCompare(a.start || a.name);
 
 export function applyData(d) {
   const base = DEFAULTS();
   for (const k of Object.keys(base)) state[k] = d[k] ?? base[k];
   state.settings = { ...DEFAULT_SETTINGS, ...(d.settings || {}) };
+  ensureSemesters();
 }
 
 export function applySettings() {

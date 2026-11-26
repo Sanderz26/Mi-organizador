@@ -1,5 +1,5 @@
 // Progreso: niveles, experiencia en el tiempo y gráficas de todas las áreas
-import { state, commit, subjectName, topicName } from '../store.js';
+import { state, commit, subjectName, topicName, activeSubjects, currentSemester } from '../store.js';
 import { icon } from '../icons.js';
 import { esc, fmtDate, sum, addDays, weekKey, parseKey, emptyState, confirmModal } from '../util.js';
 import { levelGrid, failDialog, bonusDialog } from '../components.js';
@@ -19,7 +19,7 @@ export function render(el) {
   // horas de estudio por semana y materia (12 semanas)
   const weeks = [];
   for (let i = 11; i >= 0; i--) weeks.push(weekKey(addDays(new Date(), -7 * i)));
-  const subs = state.subjects.filter((s) => !s.archived);
+  const subs = activeSubjects();
 
   // eficiencia por tema
   const eff = state.topics.map((t) => ({ t, st: topicStats(t.id) })).filter((x) => x.st.n >= 4).sort((a, b) => b.st.improve - a.st.improve).slice(0, 10);
@@ -28,7 +28,7 @@ export function render(el) {
   const tasksDone = weeks.map((w) => state.tasks.filter((t) => t.done && t.doneAt && weekKey(parseKey(t.doneAt)) === w).length);
 
   el.innerHTML = `
-  <div class="page-head"><div><div class="sub">${totalXp.toLocaleString('es-CO')} XP en total</div><h1>Progreso</h1></div>
+  <div class="page-head"><div><div class="sub">${totalXp.toLocaleString('es-CO')} XP · semestre ${esc(currentSemester()?.name || '')}</div><h1>Progreso</h1></div>
     <div class="head-actions"><button class="btn" data-bonus>${icon('plus', 16)} Sumar XP</button><button class="btn danger" data-fail>${icon('minus', 16)} Registrar fallo</button></div></div>
   ${levelGrid()}
   <div class="card">

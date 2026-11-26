@@ -1,5 +1,5 @@
 // Sistema de experiencia, niveles y rachas
-import { state } from './store.js';
+import { state, activeSubjects } from './store.js';
 import { sound } from './sound.js';
 import { toast, uid, todayKey, toKey, addDays, parseKey, weekKey, weekStart } from './util.js';
 
@@ -22,12 +22,12 @@ export const xpOf = (area) => Math.max(0, state.xpLog.filter((e) => e.area === a
 
 export function areaList() {
   return [
-    ...state.subjects.filter((s) => !s.archived).map((s) => ({ key: 'sub:' + s.id, name: s.name, color: s.color, icon: 'book', kind: 'subject' })),
+    ...activeSubjects().map((s) => ({ key: 'sub:' + s.id, name: s.name, color: s.color, icon: 'book', kind: 'subject' })),
     { key: 'gym', name: 'Gimnasio', color: 'var(--c-gym)', icon: 'barbell', kind: 'gym' },
     { key: 'diet', name: 'Dieta', color: 'var(--c-diet)', icon: 'salad', kind: 'diet' },
   ];
 }
-export const areaName = (key) => areaList().find((a) => a.key === key)?.name || (key.startsWith('sub:') ? 'Materia' : key);
+export const areaName = (key) => areaList().find((a) => a.key === key)?.name || (key.startsWith('sub:') ? state.subjects.find((s) => 'sub:' + s.id === key)?.name || 'Materia' : key);
 
 /** Suma o resta XP. ref permite reemplazar o quitar la XP ligada a un registro. */
 export function award(area, amount, reason, ref = null, { quiet = false, date = todayKey(), kind } = {}) {

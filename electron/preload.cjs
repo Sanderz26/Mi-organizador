@@ -13,4 +13,8 @@ contextBridge.exposeInMainWorld('native', {
   notify: (title, body) => ipcRenderer.invoke('notify', title, body),
   setAutostart: (on) => ipcRenderer.invoke('autostart', on),
   setCloseToTray: (on) => ipcRenderer.invoke('closeToTray', on),
+  updateStatus: () => ipcRenderer.invoke('update:status'),
+  checkUpdate: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdate: (cb) => ipcRenderer.on('update', (_e, u) => cb(u)),
 });

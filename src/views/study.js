@@ -1,5 +1,5 @@
 // Estudio: materias, temas, horas, eficiencia en ejercicios, tareas y apuntes
-import { state, commit, upsert, remove, find, SUBJECT_COLORS, topicName } from '../store.js';
+import { state, commit, upsert, remove, find, SUBJECT_COLORS, topicName, activeSubjects, currentSemester, semesterOf, semesterSort, guessSemesterName } from '../store.js';
 import { icon } from '../icons.js';
 import { esc, todayKey, fmtMin, fmtSec, fmtDate, formModal, openModal, emptyState, sum, weekKey, DAYS } from '../util.js';
 import { levelCard, failDialog, bonusDialog } from '../components.js';
@@ -13,6 +13,7 @@ import { notesBlock, bindNotesBlock } from './notes.js';
 const STATUS = { pendiente: { l: 'Pendiente', c: '' }, curso: { l: 'En curso', c: 'warn' }, dominado: { l: 'Dominado', c: 'ok' } };
 const DAY_ALIASES = { do: 0, lu: 1, ma: 2, mi: 3, ju: 4, vi: 5, sa: 6 };
 let tab = 'temas';
+let viewSem = '';
 let effTopic = '';
 
 // ---------- Horario ----------
@@ -42,10 +43,9 @@ export async function subjectDialog(sub = null) {
       { name: 'teacher', label: 'Profesor', type: 'text', value: s.teacher || '' },
       { name: 'credits', label: 'Créditos', type: 'number', value: s.credits || '', step: 1 },
       { name: 'schedule', label: 'Horario de clases (una clase por línea)', type: 'textarea', value: scheduleToText(s.schedule), placeholder: 'Lunes 7:00-9:00 Bloque 3 - 201\nMiércoles 7:00-9:00 Bloque 3 - 201', hint: 'Formato: día hora inicio-hora fin y, si quieres, el salón. Aparece en tu calendario cada semana.' },
-      { name: 'semesterStart', label: 'Inicio del semestre', type: 'date', value: s.semesterStart || '' },
-      { name: 'semesterEnd', label: 'Fin del semestre', type: 'date', value: s.semesterEnd || '' },
+      { name: 'semesterId', label: 'Semestre', type: 'select', value: s.semesterId || viewSem || state.settings.currentSemester, options: state.semesters.slice().sort(semesterSort).map((x) => ({ v: x.id, l: x.name + (x.id === state.settings.currentSemester ? ' (actual)' : '') })) },
       { name: 'goalHours', label: 'Meta de estudio semanal (horas)', type: 'number', value: s.goalHours || '', step: 0.5 },
-      { name: 'archived', label: 'Materia terminada (se oculta pero conserva su historial)', type: 'checkbox', value: s.archived },
+      { name: 'archived', label: 'Materia cancelada (se oculta pero conserva su historial)', type: 'checkbox', value: s.archived },
     ],
   });
   if (!v) return;
@@ -85,7 +85,7 @@ export async function topicDialog(subjectId, topic = null) {
 
 /** Elige materia y tema y arranca el cronómetro */
 export async function startDialog(subjectId = '') {
-  const subs = state.subjects.filter((s) => !s.archived);
+  const subs = activeSubjects();
   if (!subs.length) { window.go('estudio'); subjectDialog(); return; }
   const sid = subjectId || subs[0].id;
   const v = await formModal({
@@ -214,7 +214,7 @@ function subjectCard(s) {
   const dom = topics.filter((t) => t.status === 'dominado').length;
   const pend = state.tasks.filter((t) => t.subjectId === s.id && !t.done).length;
   return `<div class="card" style="cursor:pointer" data-open="${esc(s.id)}">
-    <div class="split"><span class="dot" style="--c:${esc(s.color)};width:12px;height:12px"></span><h2 class="grow">${esc(s.name)}</h2>${s.archived ? '<span class="pill">Terminada</span>' : ''}</div>
+    <div class="split"><span class="dot" style="--c:${esc(s.color)};width:12px;height:12px"></span><h2 class="grow">${esc(s.name)}</h2>${s.archived ? '<span class="pill">Cancelada</span>' : ''}</div>
     <div class="grid g2" style="margin-top:12px;gap:8px">
       <div><div class="faint tiny">Total estudiado</div><div class="num" style="font-weight:600">${fmtMin(mins)}</div></div>
       <div><div class="faint tiny">Esta semana</div><div class="num" style="font-weight:600">${fmtMin(week)}${s.goalHours ? ` <span class="faint tiny">/ ${s.goalHours}h</span>` : ''}</div></div>
@@ -225,22 +225,89 @@ function subjectCard(s) {
   </div>`;
 }
 
+// ---------- Semestres ----------
+async function semesterForm(sem = null) {
+  const v = await formModal({
+    title: sem ? 'Editar semestre' : 'Nuevo semestre',
+    deleteLabel: sem && state.semesters.length > 1 ? 'Eliminar semestre' : null,
+    fields: [
+      { name: 'name', label: 'Nombre', type: 'text', value: sem?.name || guessSemesterName(), required: true, placeholder: '2026-1 o Quinto semestre' },
+      { name: 'number', label: 'Número de semestre (opcional)', type: 'number', value: sem?.number || '', step: 1, min: 1 },
+      { name: 'start', label: 'Inicio de clases', type: 'date', value: sem?.start || '' },
+      { name: 'end', label: 'Fin de clases', type: 'date', value: sem?.end || '' },
+      { name: 'current', label: 'Es mi semestre actual', type: 'checkbox', value: sem ? sem.id === state.settings.currentSemester : true },
+    ],
+    extraHtml: '<p class="small muted">Las clases de las materias aparecen en el calendario solo entre estas fechas.</p>',
+  });
+  if (!v) return null;
+  if (v._action === 'delete') {
+    if (state.subjects.some((x) => x.semesterId === sem.id)) { openModal({ title: 'No se puede eliminar', body: '<p>Este semestre tiene materias. Muévelas a otro semestre o elimínalas primero.</p>' }); return null; }
+    remove('semesters', sem.id);
+    if (state.settings.currentSemester === sem.id) state.settings.currentSemester = state.semesters[0]?.id || '';
+    sound('delete'); commit(); return null;
+  }
+  const saved = upsert('semesters', { ...(sem || {}), name: v.name, number: v.number, start: v.start, end: v.end });
+  if (v.current) state.settings.currentSemester = saved.id;
+  sound('complete');
+  commit();
+  return saved;
+}
+
+function semestersDialog() {
+  const draw = () => state.semesters.slice().sort(semesterSort).map((x) => {
+    const subs = state.subjects.filter((s) => s.semesterId === x.id);
+    const mins = sum(state.studySessions.filter((ss) => subs.some((s) => s.id === ss.subjectId)), (ss) => ss.minutes);
+    return `<div class="row"><div class="grow"><div class="title">${esc(x.name)} ${x.id === state.settings.currentSemester ? '<span class="pill acc">Actual</span>' : ''}</div><div class="meta"><span>${subs.length} materias</span><span>${fmtMin(mins)} estudiados</span>${x.start || x.end ? `<span>${x.start ? esc(fmtDate(x.start)) : '…'} – ${x.end ? esc(fmtDate(x.end)) : '…'}</span>` : ''}</div></div>
+      ${x.id !== state.settings.currentSemester ? `<button class="btn sm" data-cur="${esc(x.id)}">Hacer actual</button>` : ''}<button class="btn ghost icon sm" data-ed="${esc(x.id)}" aria-label="Editar semestre">${icon('edit', 15)}</button></div>`;
+  }).join('');
+  const ov = openModal({
+    title: 'Semestres',
+    body: `<div class="list" data-list>${draw()}</div><button class="btn primary sm" data-add style="width:fit-content">${icon('plus', 14)} Nuevo semestre</button>
+      <p class="small muted">Tus niveles, el inicio y el calendario usan las materias del semestre actual. Las de semestres anteriores conservan todo su historial.</p>`,
+  });
+  const refresh = () => { if (ov.isConnected) ov.querySelector('[data-list]').innerHTML = draw(); };
+  ov.addEventListener('click', async (e) => {
+    const b = e.target.closest('button');
+    if (!b) return;
+    if (b.dataset.cur) { state.settings.currentSemester = b.dataset.cur; viewSem = b.dataset.cur; sound('complete'); commit(); refresh(); }
+    else if (b.dataset.ed) { await semesterForm(find('semesters', b.dataset.ed)); refresh(); }
+    else if ('add' in b.dataset) { const n = await semesterForm(); if (n) { viewSem = n.id; commit(); } refresh(); }
+  });
+}
+
 function renderList(el) {
-  const active = state.subjects.filter((s) => !s.archived);
-  const archived = state.subjects.filter((s) => s.archived);
+  if (!viewSem || !find('semesters', viewSem)) viewSem = state.settings.currentSemester;
+  const sem = find('semesters', viewSem) || currentSemester();
+  const isCur = sem?.id === state.settings.currentSemester;
+  const inSem = state.subjects.filter((s) => s.semesterId === sem?.id);
+  const active = inSem.filter((s) => !s.archived);
+  const archived = inSem.filter((s) => s.archived);
   const weekMin = sum(state.studySessions.filter((x) => weekKey(new Date(x.date + 'T00:00')) === weekKey(new Date())), (x) => x.minutes);
+  const semMin = sum(state.studySessions.filter((x) => inSem.some((s) => s.id === x.subjectId)), (x) => x.minutes);
+  const credits = sum(active, (s) => s.credits);
+  const sems = state.semesters.slice().sort(semesterSort);
   el.innerHTML = `
   <div class="page-head"><div><div class="sub">${fmtMin(weekMin)} estudiados esta semana</div><h1>Estudio</h1></div>
     <div class="head-actions"><button class="btn" data-start>${icon('player-play', 16)} Iniciar estudio</button><button class="btn primary" data-newsub>${icon('plus', 16)} Materia</button></div></div>
-  ${active.length ? `<div class="grid g-auto" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${active.map(subjectCard).join('')}</div>` : `<div class="card">${emptyState('school', 'Agrega las materias que estás viendo este semestre.', `<button class="btn primary" data-newsub>${icon('plus', 16)} Agregar materia</button>`)}</div>`}
-  ${archived.length ? `<h2 style="margin-top:8px">Materias terminadas</h2><div class="grid g-auto" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${archived.map(subjectCard).join('')}</div>` : ''}`;
+  <div class="split">
+    <select data-sem style="width:auto;min-width:200px" aria-label="Semestre">${sems.map((x) => `<option value="${esc(x.id)}" ${x.id === sem?.id ? 'selected' : ''}>${esc(x.name)}${x.id === state.settings.currentSemester ? ' · actual' : ''}</option>`).join('')}</select>
+    <button class="btn sm" data-sems>${icon('school', 15)} Semestres</button>
+    ${!isCur ? `<span class="pill warn">No es el semestre actual</span><button class="btn ghost sm" data-makecur>Hacer actual</button>` : ''}
+    <span class="grow"></span>
+    <span class="muted small">${active.length} materias${credits ? ` · ${credits} créditos` : ''} · ${fmtMin(semMin)} en el semestre${sem?.start || sem?.end ? ` · ${sem.start ? esc(fmtDate(sem.start)) : '…'} – ${sem.end ? esc(fmtDate(sem.end)) : '…'}` : ''}</span>
+  </div>
+  ${active.length ? `<div class="grid g-auto" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${active.map(subjectCard).join('')}</div>` : `<div class="card">${emptyState('school', isCur ? 'Agrega las materias que estás viendo este semestre.' : 'Este semestre no tiene materias.', `<button class="btn primary" data-newsub>${icon('plus', 16)} Agregar materia</button>`)}</div>`}
+  ${archived.length ? `<h2 style="margin-top:8px">Canceladas</h2><div class="grid g-auto" style="grid-template-columns:repeat(auto-fill,minmax(260px,1fr))">${archived.map(subjectCard).join('')}</div>` : ''}`;
   el.onclick = (e) => {
-    const t = e.target.closest('[data-open],[data-newsub],[data-start]');
+    const t = e.target.closest('[data-open],[data-newsub],[data-start],[data-sems],[data-makecur]');
     if (!t) return;
     if (t.dataset.open) window.go('estudio', t.dataset.open);
     else if ('newsub' in t.dataset) subjectDialog();
+    else if ('sems' in t.dataset) semestersDialog();
+    else if ('makecur' in t.dataset) { state.settings.currentSemester = sem.id; sound('complete'); commit(); }
     else startDialog();
   };
+  el.onchange = (e) => { if (e.target.matches('[data-sem]')) { viewSem = e.target.value; renderList(el); } };
 }
 
 function renderSubject(el, s) {
@@ -274,7 +341,7 @@ function renderSubject(el, s) {
   }
 
   el.innerHTML = `
-  <div class="page-head"><div><button class="btn ghost sm" data-back style="margin-left:-10px">${icon('arrow-left', 16)} Materias</button><h1 style="display:flex;align-items:center;gap:10px"><span class="dot" style="--c:${esc(s.color)};width:14px;height:14px"></span>${esc(s.name)}</h1>${s.teacher ? `<div class="sub" style="margin-top:2px">${esc(s.teacher)}</div>` : ''}</div>
+  <div class="page-head"><div><button class="btn ghost sm" data-back style="margin-left:-10px">${icon('arrow-left', 16)} Materias</button><h1 style="display:flex;align-items:center;gap:10px"><span class="dot" style="--c:${esc(s.color)};width:14px;height:14px"></span>${esc(s.name)}</h1><div class="sub" style="margin-top:2px">${esc([semesterOf(s)?.name ? 'Semestre ' + semesterOf(s).name : '', s.teacher].filter(Boolean).join(' · '))}</div></div>
     <div class="head-actions"><button class="btn primary" data-timer>${icon('player-play', 16)} Estudiar</button><button class="btn" data-extimer>${icon('stopwatch', 16)} Ejercicios</button><button class="btn icon" data-editsub aria-label="Editar materia">${icon('edit')}</button></div></div>
   <div class="grid g-side">
     <div class="grid" style="align-content:start">${levelCard(area)}

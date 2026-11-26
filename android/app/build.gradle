@@ -19,10 +19,11 @@ android {
     signingConfigs {
         release {
             // Llave fija: permite instalar cada versión nueva encima de la anterior sin perder datos
-            storeFile file('organizador-release.p12')
-            storePassword 'OrganizadorRoa2026'
+            // La llave vive como secreto de GitHub (ANDROID_KEYSTORE_B64 / ANDROID_KEYSTORE_PASSWORD), nunca en el código
+            storeFile file(System.getenv("ANDROID_KEYSTORE_PATH") ?: "release.p12")
+            storePassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
             keyAlias 'organizador'
-            keyPassword 'OrganizadorRoa2026'
+            keyPassword System.getenv("ANDROID_KEYSTORE_PASSWORD") ?: ""
             storeType 'pkcs12'
         }
     }

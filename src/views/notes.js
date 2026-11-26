@@ -18,7 +18,7 @@ export function noteDialog(note = null, preset = {}) {
     wide: true,
     body: `<div class="form-grid">
       <div class="field"><label for="n_t">Título</label><input id="n_t" type="text" value="${esc(n.title)}" placeholder="Resumen capítulo 4"></div>
-      <div class="field"><label for="n_s">Materia</label><select id="n_s">${subjectOptions(true, 'Nota general').map((o) => `<option value="${esc(o.v)}" ${o.v === n.subjectId ? 'selected' : ''}>${esc(o.l)}</option>`).join('')}</select></div>
+      <div class="field"><label for="n_s">Materia</label><select id="n_s">${subjectOptions(true, 'Nota general', n.subjectId).map((o) => `<option value="${esc(o.v)}" ${o.v === n.subjectId ? 'selected' : ''}>${esc(o.l)}</option>`).join('')}</select></div>
       <div class="field full"><label for="n_b">Contenido</label><textarea id="n_b" style="min-height:220px" placeholder="Escribe tus apuntes…">${esc(n.body)}</textarea></div>
       <div class="field full"><label>Archivos</label><div data-thumbs></div>
         <label class="btn sm" style="width:fit-content;cursor:pointer">${icon('paperclip', 15)} Adjuntar archivos<input type="file" multiple hidden data-files></label>

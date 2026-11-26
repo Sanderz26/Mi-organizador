@@ -7,6 +7,7 @@ import { timerElapsed, timerLabel, togglePause, stopTimer } from './timer.js';
 import { startReminderLoop, refreshReminders } from './notify.js';
 import { syncHolidaysOnline } from './holidays.js';
 import { onAppPause, onBackButton, exitApp } from './platform.js';
+import { startUpdates } from './updates.js';
 
 import * as home from './views/home.js';
 import * as calendar from './views/calendar.js';
@@ -55,6 +56,7 @@ function shell() {
       <div class="sidebar-foot"><div class="nav-sep"></div>${navItem('ajustes')}</div>
     </aside>
     <main class="main" id="main">
+      <div id="updatebar"></div>
       <div id="timerbar"></div>
       <div id="view" class="view"></div>
     </main>
@@ -126,6 +128,7 @@ async function boot() {
   render();
   if (isWriteBlocked()) openModal({ title: 'No se pudieron leer tus datos', body: '<p>El archivo de datos parece dañado. Para protegerlo, la app no guardará cambios en esta sesión. Restaura un respaldo desde Ajustes o escríbeme para recuperarlo.</p>' });
   startReminderLoop();
+  startUpdates();
   syncHolidaysOnline().then((changed) => { if (changed && !hasModal()) render(); });
 }
 boot();

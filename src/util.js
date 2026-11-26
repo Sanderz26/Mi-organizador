@@ -56,10 +56,11 @@ export function openModal({ title, body = '', foot = '', wide = false, onMount }
     <div class="modal-body">${body}</div>${foot ? `<div class="modal-foot">${foot}</div>` : ''}</div>`;
   root.appendChild(ov);
   modalStack++;
-  const close = () => { if (!ov.isConnected) return; ov.remove(); modalStack--; ov.dispatchEvent(new Event('closed')); };
+  const onKey = (e) => { if (e.key === 'Escape' && root.lastElementChild === ov) { e.stopPropagation(); close(); } };
+  const close = () => { if (!ov.isConnected) return; ov.remove(); modalStack--; document.removeEventListener('keydown', onKey, true); ov.dispatchEvent(new Event('closed')); };
   ov.addEventListener('mousedown', (e) => { if (e.target === ov) close(); });
   ov.querySelector('[data-close]').onclick = close;
-  ov.addEventListener('keydown', (e) => { if (e.key === 'Escape') close(); });
+  document.addEventListener('keydown', onKey, true);
   ov.close = close;
   if (onMount) onMount(ov, close);
   setTimeout(() => { const f = ov.querySelector('input:not([type=checkbox]):not([type=file]), select, textarea'); if (f && window.innerWidth > 860) f.focus(); }, 30);

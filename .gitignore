@@ -6,3 +6,8 @@ release/
 android/app/build/
 android/build/
 android/.gradle/
+
+# Llaves de firma: nunca en el repositorio
+*.p12
+*.jks
+*.keystore

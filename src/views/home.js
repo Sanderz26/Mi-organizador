@@ -1,5 +1,5 @@
 // Inicio: resumen del día
-import { state, commit } from '../store.js';
+import { state, commit, activeSubjects } from '../store.js';
 import { icon } from '../icons.js';
 import { esc, todayKey, fmtDateLong, fmtDate, fmtMin, fmtMoney, sum, relDay, emptyState } from '../util.js';
 import { agendaFor } from '../agenda.js';
@@ -34,7 +34,7 @@ export function render(el) {
     </div>
   </div>
 
-  ${state.subjects.length ? '' : `<div class="card split"><div class="grow"><h2>Empieza por tus materias</h2><p class="muted small" style="margin-top:4px">Agrega las materias que estás viendo con su horario. Desde ahí registras temas, horas de estudio y tu eficiencia.</p></div><button class="btn primary" data-go="estudio">${icon('plus', 16)} Agregar materias</button></div>`}
+  ${activeSubjects().length ? '' : `<div class="card split"><div class="grow"><h2>Empieza por tus materias</h2><p class="muted small" style="margin-top:4px">Agrega las materias que estás viendo con su horario. Desde ahí registras temas, horas de estudio y tu eficiencia.</p></div><button class="btn primary" data-go="estudio">${icon('plus', 16)} Agregar materias</button></div>`}
 
   ${levelGrid()}
 

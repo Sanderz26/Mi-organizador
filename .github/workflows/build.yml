@@ -39,6 +39,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Preparar la llave de firma
+        run: |
+          if [ -z "$KEYSTORE_B64" ] || [ -z "$KEYSTORE_PASSWORD" ]; then
+            echo "::error::Faltan los secretos ANDROID_KEYSTORE_B64 y ANDROID_KEYSTORE_PASSWORD (Settings > Secrets and variables > Actions)."
+            exit 1
+          fi
+          echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.p12"
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_B64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       - name: Compilar APK
         working-directory: android
         run: |
@@ -47,6 +57,8 @@ jobs:
         env:
           VERSION_CODE: ${{ github.run_number }}
           VERSION_NAME: ${{ env.APP_VERSION }}
+          ANDROID_KEYSTORE_PATH: ${{ runner.temp }}/release.p12
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
       - run: cp android/app/build/outputs/apk/release/app-release.apk "Organizador-${APP_VERSION}.apk"
       - uses: actions/upload-artifact@v4
         with:
@@ -72,7 +84,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*.blockmap
+            release/latest.yml
 
   publicar:
     name: Publicar descarga
@@ -93,4 +108,5 @@ jobs:
             **Para el PC (Windows):** descarga `Organizador-Setup-${{ env.APP_VERSION }}.exe` y ábrelo.
             **Para la tableta (Android):** descarga `Organizador-${{ env.APP_VERSION }}.apk` en la tableta y ábrelo.
 
+            A partir de la versión 1.0.7 la app se actualiza sola en el PC y avisa en la tableta.
             Al instalar una versión nueva encima de la anterior, tus datos se conservan.

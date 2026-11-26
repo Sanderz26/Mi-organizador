@@ -9,7 +9,7 @@ Ve a **Releases** (columna derecha de esta página) y descarga la versión más 
 - **PC con Windows:** `Organizador-Setup-x.y.z.exe`. Si Windows muestra "Windows protegió tu PC", toca *Más información* → *Ejecutar de todas formas* (pasa porque la app no está firmada por una empresa).
 - **Tableta Android:** `Organizador-x.y.z.apk`. Ábrelo desde la tableta y permite "Instalar apps desconocidas" para tu navegador o administrador de archivos.
 
-Cada vez que se sube un cambio a `main`, GitHub genera los instaladores nuevos en unos 10–15 minutos.
+Cada vez que se sube un cambio a `main`, GitHub genera los instaladores nuevos en unos 10–15 minutos. Desde la 1.0.7 el PC se actualiza solo y la tableta avisa.
 
 ## Datos
 
@@ -26,4 +26,5 @@ npm run electron   # versión de escritorio (tras npm run build)
 
 - Interfaz: JavaScript + Vite, gráficas con Chart.js, íconos Tabler.
 - Windows: Electron (`electron/`), instalador con electron-builder.
-- Android: Capacitor (`android/`), APK firmado con la llave de `android/app/organizador-release.p12`.
+- Android: Capacitor (`android/`). El APK se firma en GitHub Actions con la llave guardada en los secretos `ANDROID_KEYSTORE_B64` y `ANDROID_KEYSTORE_PASSWORD`.
+- Actualizaciones: Windows usa electron-updater con GitHub Releases; Android consulta la última versión y ofrece descargarla.

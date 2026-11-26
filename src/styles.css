@@ -100,6 +100,10 @@ p { margin: 0; }
 .timerbar .btn { background: rgba(255, 255, 255, .16); border-color: transparent; color: inherit; }
 .timerbar .btn:hover { background: rgba(255, 255, 255, .26); }
 
+.updatebar { display: flex; align-items: center; gap: 12px; padding: 10px clamp(16px, 3vw, 36px); background: var(--ok-soft); color: var(--ok); border-bottom: 1px solid var(--line); flex-wrap: wrap; font-size: 14px; }
+.updatebar b { font-weight: 600; }
+.updatebar .grow { flex: 1; color: var(--ink); }
+
 /* Tarjetas */
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 18px 20px; box-shadow: var(--shadow); }
 .card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 12px; }

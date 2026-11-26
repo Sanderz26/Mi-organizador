@@ -5,6 +5,7 @@ import { esc, toast, todayKey, confirmModal } from '../util.js';
 import { exportText, pickFile, ensureNotifyPermission, showNotification, setAutostart, isWindows, isAndroid, platformName } from '../platform.js';
 import { refreshReminders } from '../notify.js';
 import { sound } from '../sound.js';
+import { checkForUpdates, installUpdate, updateStatus, APP_VERSION } from '../updates.js';
 
 const F = (name, label, type = 'text', extra = '') => {
   const v = state.settings[name];
@@ -12,6 +13,19 @@ const F = (name, label, type = 'text', extra = '') => {
   return `<div class="field"><label>${esc(label)}</label><input type="${type}" data-s="${name}" value="${esc(v ?? '')}" ${extra}></div>`;
 };
 const S = (name, label, opts) => `<div class="field"><label>${esc(label)}</label><select data-s="${name}">${opts.map(([v, l]) => `<option value="${v}" ${String(state.settings[name]) === String(v) ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select></div>`;
+
+function updMsg(s) {
+  switch (s.state) {
+    case 'checking': return 'Buscando actualizaciones…';
+    case 'downloading': return `Descargando versión ${s.version || ''}${s.percent ? ` (${s.percent}%)` : ''}…`;
+    case 'ready': return `La versión ${s.version} está lista para instalarse.`;
+    case 'available': return `Hay una versión nueva: ${s.version}.`;
+    case 'none': return 'Estás al día.';
+    case 'error': return 'No se pudo revisar ahora (¿sin internet?). Se intentará más tarde.';
+    case 'dev': return 'Las actualizaciones funcionan en la app instalada.';
+    default: return '';
+  }
+}
 
 export function render(el) {
   const counts = `${state.subjects.length} materias · ${state.tasks.length} tareas · ${state.meals.length} comidas · ${state.gymSessions.length} entrenos · ${state.sales.length} pedidos · ${state.notes.length} notas`;
@@ -47,6 +61,11 @@ export function render(el) {
       ${F('printerWatts', 'Consumo de la impresora (W)', 'number', 'step="5"')}
       ${F('kwhCost', 'Precio del kWh', 'number', 'step="10"')}
     </div></div>
+    <div class="card"><div class="card-head"><h2>${icon('download', 18)} Actualizaciones</h2></div>
+      <p class="small">Tienes la versión <b>${APP_VERSION}</b>. ${isWindows ? 'La app busca versiones nuevas sola, las descarga en segundo plano y las instala al reiniciarse.' : isAndroid ? 'La app revisa si hay versiones nuevas y te avisa para descargarlas.' : ''}</p>
+      <p class="small muted" data-updmsg style="margin:8px 0">${updMsg(updateStatus())}</p>
+      <div class="split"><button class="btn sm" data-chkupd>${icon('repeat', 15)} Buscar actualizaciones</button>${['ready', 'available'].includes(updateStatus().state) ? `<button class="btn primary sm" data-instupd>${updateStatus().state === 'ready' ? 'Reiniciar y actualizar' : 'Descargar'}</button>` : ''}</div>
+    </div>
     <div class="card"><div class="card-head"><h2>${icon('device-floppy', 18)} Respaldo</h2></div>
       <p class="small muted">${esc(counts)}</p>
       <p class="small" style="margin:10px 0">Tus datos se guardan en este dispositivo. Exporta un respaldo y guárdalo en tu Google Drive; con él pasas tus datos entre el PC y la tableta.</p>
@@ -73,7 +92,13 @@ export function render(el) {
   el.onclick = async (e) => {
     const b = e.target.closest('button');
     if (!b) return;
-    if ('perm' in b.dataset) { const ok = await ensureNotifyPermission(); toast(ok ? 'Notificaciones activadas' : 'No se concedió el permiso'); refreshReminders(); }
+    if ('chkupd' in b.dataset) {
+      el.querySelector('[data-updmsg]').textContent = 'Buscando…';
+      const s = await checkForUpdates(true);
+      if (el.querySelector('[data-updmsg]')) render(el);
+      if (s.state === 'none') toast('Ya tienes la última versión');
+    } else if ('instupd' in b.dataset) installUpdate();
+    else if ('perm' in b.dataset) { const ok = await ensureNotifyPermission(); toast(ok ? 'Notificaciones activadas' : 'No se concedió el permiso'); refreshReminders(); }
     else if ('test' in b.dataset) { await ensureNotifyPermission(); showNotification('Organizador', 'Así se verán tus recordatorios'); sound('alarm'); }
     else if ('export' in b.dataset) {
       await flush();

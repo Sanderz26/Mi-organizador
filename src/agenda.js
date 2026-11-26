@@ -1,5 +1,5 @@
 // Agenda unificada: eventos, cumpleaños, clases, tareas, gimnasio y festivos
-import { state } from './store.js';
+import { state, subjectRunsOn } from './store.js';
 import { holidayMap } from './holidays.js';
 import { parseKey, toKey, addDays, dateTime } from './util.js';
 
@@ -42,9 +42,7 @@ export function agendaFor(key, { includeClasses = true } = {}) {
   }
   if (includeClasses && !hol) {
     for (const s of state.subjects) {
-      if (s.archived) continue;
-      if (s.semesterEnd && key > s.semesterEnd) continue;
-      if (s.semesterStart && key < s.semesterStart) continue;
+      if (!subjectRunsOn(s, key)) continue;
       for (const c of s.schedule || []) {
         if (Number(c.day) === d.getDay()) items.push({ kind: 'class', id: s.id, title: `Clase · ${s.name}`, short: s.name, time: c.start, end: c.end, color: s.color, icon: 'school', sub: c.room || '' });
       }
@@ -83,7 +81,7 @@ export function upcomingReminders(days = 45) {
     if (s.classReminderMins > 0 && !hol && i < 14) {
       const wd = addDays(now, i).getDay();
       for (const sub of state.subjects) {
-        if (sub.archived || (sub.semesterEnd && key > sub.semesterEnd) || (sub.semesterStart && key < sub.semesterStart)) continue;
+        if (!subjectRunsOn(sub, key)) continue;
         for (const c of sub.schedule || []) {
           if (Number(c.day) !== wd || !c.start) continue;
           out.push({ key: `cls:${sub.id}:${key}:${c.start}`, at: dateTime(key, c.start).getTime() - s.classReminderMins * 60000, title: `Clase de ${sub.name}`, body: `A las ${c.start}${c.room ? ' · ' + c.room : ''}` });
