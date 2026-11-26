@@ -1,0 +1,9 @@
+{
+  "appId": "com.roa.organizador",
+  "appName": "Organizador",
+  "webDir": "dist",
+  "android": { "backgroundColor": "#f6f7f9" },
+  "plugins": {
+    "LocalNotifications": { "smallIcon": "ic_stat_notify", "iconColor": "#1d5c74" }
+  }
+}
