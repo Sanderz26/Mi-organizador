@@ -7,6 +7,7 @@ import { award, RULES } from '../xp.js';
 import { awardStudy } from '../timer.js';
 import { toggleTask } from './tasks.js';
 import { canDictate, listen, speak, stopSpeaking } from '../voice.js';
+import { pauseWake, resumeWake } from '../wakeword.js';
 import { sound } from '../sound.js';
 
 const LS = 'organizador-ia-chat';
@@ -14,6 +15,9 @@ let chat = (() => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); }
 let busy = false;
 let mic = null; // grabación en curso
 let micState = 'idle'; // idle | listening | transcribing
+let voicePending = false;
+/** Lo llama la palabra "Aries": abre el asistente y empieza a escuchar */
+export function requestVoiceStart() { voicePending = true; }
 const VOICE_LS = 'organizador-ia-voz';
 const VOICE_MODES = { dictado: 'Voz al dictar', siempre: 'Voz siempre', apagada: 'Sin voz' };
 let voiceMode = (() => { try { return localStorage.getItem(VOICE_LS) || 'dictado'; } catch { return 'dictado'; } })();
@@ -155,8 +159,9 @@ async function send(el, text, { byVoice = false } = {}) {
     const content = String(reply.respuesta || '').trim() || (actions.length ? 'Te propongo esto:' : 'No tengo una respuesta para eso.');
     chat.push({ role: 'assistant', content, actions: actions.map((a) => ({ ...a, _id: Math.random().toString(36).slice(2), _done: false })) });
     if ((byVoice && voiceMode !== 'apagada') || voiceMode === 'siempre') {
-      speak(content + (actions.length && !/confirm/i.test(content) ? ` Te dejé ${actions.length === 1 ? 'una propuesta' : actions.length + ' propuestas'} para que confirmes.` : ''));
-    } else sound('xp');
+      pauseWake();
+      speak(content + (actions.length && !/confirm/i.test(content) ? ` Te dejé ${actions.length === 1 ? 'una propuesta' : actions.length + ' propuestas'} para que confirmes.` : ''), () => resumeWake());
+    } else { sound('xp'); resumeWake(); }
   } catch (e) {
     chat.push({ role: 'assistant', content: e.message || 'No se pudo responder.', error: true });
     sound('error');
@@ -180,8 +185,9 @@ async function toggleMic(el) {
   if (micState === 'listening') { mic?.stop(); return; }
   if (micState === 'transcribing' || busy) return;
   const ok = await canDictate();
-  if (!ok.ok) { toast(ok.why, { ms: 5000 }); sound('error'); return; }
+  if (!ok.ok) { toast(ok.why, { ms: 5000 }); sound('error'); resumeWake(); return; }
   stopSpeaking();
+  pauseWake();
   try {
     sound('start');
     mic = await listen({ onLevel: (l) => { if (micState === 'listening') setMic(el, 'listening', l); }, onStopped: () => setMic(el, 'transcribing') });
@@ -193,13 +199,14 @@ async function toggleMic(el) {
     const text = await Promise.race([doneP, new Promise((r) => setTimeout(r, 70000))]).finally(() => clearInterval(watch));
     setMic(el, 'idle');
     mic = null;
-    if (!text) { toast('No te escuché. Intenta de nuevo.'); return; }
+    if (!text) { toast('No te escuché. Intenta de nuevo.'); resumeWake(); return; }
     const input = el.querySelector('[data-in]');
     if (input) input.value = '';
     send(el, text, { byVoice: true });
   } catch (e) {
     setMic(el, 'idle');
     mic = null;
+    resumeWake();
     toast(e.message || 'No se pudo usar el micrófono', { ms: 5000 });
     sound('error');
   }
@@ -263,5 +270,6 @@ export function render(el) {
       commit();
     }
   };
-  if (window.innerWidth > 860) input.focus();
+  if (voicePending) { voicePending = false; setTimeout(() => toggleMic(el), 250); }
+  else if (window.innerWidth > 860) input.focus();
 }

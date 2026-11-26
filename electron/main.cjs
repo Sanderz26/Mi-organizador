@@ -67,6 +67,7 @@ function createWindow() {
       contextIsolation: true,
       nodeIntegration: false,
       spellcheck: true,
+      backgroundThrottling: false,
     },
   });
   if (prefs.maximized) win.maximize();
@@ -190,6 +191,7 @@ ipcMain.handle('notify', (_e, title, body) => {
   n.show();
   return true;
 });
+ipcMain.handle('window:show', () => { showWin(); return true; });
 ipcMain.handle('autostart', (_e, on) => { app.setLoginItemSettings({ openAtLogin: !!on, args: ['--hidden'] }); return true; });
 ipcMain.handle('closeToTray', (_e, on) => { closeToTray = !!on; return true; });
 

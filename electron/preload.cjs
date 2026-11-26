@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('native', {
   exportFile: (filename, text) => ipcRenderer.invoke('export:save', filename, text),
   notify: (title, body) => ipcRenderer.invoke('notify', title, body),
   setAutostart: (on) => ipcRenderer.invoke('autostart', on),
+  showWindow: () => ipcRenderer.invoke('window:show'),
   setCloseToTray: (on) => ipcRenderer.invoke('closeToTray', on),
   updateStatus: () => ipcRenderer.invoke('update:status'),
   checkUpdate: () => ipcRenderer.invoke('update:check'),

@@ -10,6 +10,9 @@ import { onAppPause, onBackButton, exitApp } from './platform.js';
 import { startUpdates } from './updates.js';
 import { startSync } from './sync.js';
 import { openSearch } from './search.js';
+import { wakePrefs, startWake, onWakeStatus } from './wakeword.js';
+import { requestVoiceStart } from './views/assistant.js';
+import { sound } from './sound.js';
 
 import * as home from './views/home.js';
 import * as calendar from './views/calendar.js';
@@ -58,7 +61,7 @@ function shell() {
       <div class="brand"><span class="brand-mark">${icon('target', 18)}</span>Organizador</div>
       <button class="searchbtn" data-search>${icon('search', 16)}<span>Buscar</span><kbd>Ctrl K</kbd></button>
       ${SIDE.map((r) => navItem(r)).join('')}
-      <div class="sidebar-foot"><div id="syncchip"></div><div class="nav-sep"></div>${navItem('ajustes')}</div>
+      <div class="sidebar-foot"><div id="wakechip"></div><div id="syncchip"></div><div class="nav-sep"></div>${navItem('ajustes')}</div>
     </aside>
     <main class="main" id="main">
       <div id="updatebar"></div>
@@ -84,6 +87,22 @@ function openMore() {
     body: `<div class="list">${Object.keys(ROUTES).map((r) => `<button class="nav-item" data-r="${r}" style="padding:12px 10px">${icon(ROUTES[r].icon, 20)}<span>${ROUTES[r].label}</span></button>`).join('')}</div>`,
   });
   ov.querySelectorAll('[data-r]').forEach((b) => b.addEventListener('click', () => { ov.close(); go(b.dataset.r); }));
+}
+
+/** Al decir "Aries": trae la app al frente, abre el asistente y empieza a escuchar */
+export function onAries() {
+  sound('start');
+  window.native?.showWindow?.();
+  requestVoiceStart();
+  if (parseHash().route === 'asistente') render(); else go('asistente');
+}
+window.onAries = onAries;
+
+function drawWakeChip(s) {
+  const el = document.getElementById('wakechip');
+  if (!el) return;
+  const txt = { listening: 'Di "Aries" para hablarme', downloading: `Descargando voz… ${s.pct || 0}%`, loading: 'Preparando voz…', paused: 'Aries en pausa', error: 'Aries: ' + (s.message || 'error') }[s.state];
+  el.innerHTML = txt ? `<div class="syncchip ${s.state === 'listening' ? 'ok' : s.state === 'error' ? 'error' : ''}">${icon(s.state === 'error' ? 'alert-triangle' : 'microphone', 15)}<span>${esc(txt)}</span></div>` : '';
 }
 
 function render() {
@@ -139,6 +158,8 @@ async function boot() {
   startReminderLoop();
   startUpdates();
   startSync();
+  if (wakePrefs().on) startWake(onAries);
+  onWakeStatus(drawWakeChip);
   syncHolidaysOnline().then((changed) => { if (changed && !hasModal()) render(); });
 }
 boot();

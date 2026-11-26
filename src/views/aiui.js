@@ -3,7 +3,8 @@ import { icon } from '../icons.js';
 import { esc, toast } from '../util.js';
 import { PROVIDERS, aiConfig, localAiConfig, saveAiConfig, setAiShared, listModels, rankModels, complete } from '../ai.js';
 import { commit } from '../store.js';
-import { listVoices, voicePrefs, setVoicePrefs, speak, prettyVoice } from '../voice.js';
+import { listVoices, voicePrefs, setVoicePrefs, speak, prettyVoice, canDictate } from '../voice.js';
+import { wakePrefs, setWakePrefs, startWake, stopWake, wakeStatus, onWakeStatus, deleteWakeModel, wakeSupportedHere, wakeWhereNote } from '../wakeword.js';
 import { sound } from '../sound.js';
 
 const pickModel = (provider, list) => rankModels(provider, list)[0] || PROVIDERS[provider].model;
@@ -24,6 +25,12 @@ export function aiCardHtml() {
       <div class="field"><label>Voz</label><select data-voice><option value="">Cargando voces…</option></select><div class="hint">Las voces son las que trae este dispositivo; cada uno guarda su elección.</div></div>
       <div class="field"><label>Velocidad: <span data-ratev>${voicePrefs().rate.toFixed(2)}</span>×</label><input type="range" data-rate min="0.7" max="1.5" step="0.05" value="${voicePrefs().rate}"><div class="hint">El micrófono está en el chat del asistente.</div></div>
       <div class="full split"><button class="btn sm" data-voicetest>${icon('player-play', 15)} Escuchar ejemplo</button></div>
+      <div class="full" style="margin-top:6px"><h3 style="display:flex;align-items:center;gap:8px">${icon('microphone', 16)} Activar con la palabra "Aries"</h3></div>
+      <div class="full field"><label class="checkline"><input type="checkbox" data-wake ${wakePrefs().on ? 'checked' : ''} ${wakeSupportedHere() ? '' : 'disabled'}> Escuchar "Aries" para abrir el asistente y empezar a hablar</label>
+        <div class="hint">La palabra se detecta dentro del dispositivo: tu audio no sale de aquí hasta que dices "Aries". La primera vez descarga un modelo de voz en español (34 MB). ${esc(wakeWhereNote())}</div></div>
+      <div class="field"><label>Sensibilidad</label><select data-wakesens>${[[0.9, 'Baja (menos activaciones por error)'], [0.8, 'Normal'], [0.7, 'Alta (te entiende de más lejos)']].map(([v, l]) => `<option value="${v}" ${Number(wakePrefs().sens) === v ? 'selected' : ''}>${l}</option>`).join('')}</select></div>
+      <div class="field"><label>Estado</label><div class="small" data-wakestate style="min-height:40px;display:flex;align-items:center"></div></div>
+      <div class="full split"><button class="btn ghost sm" data-wakedel>Borrar modelo descargado</button></div>
       <p class="full tiny faint">La clave nunca va al código de la app. Si no marcas la casilla, queda solo en este dispositivo. Al usar el asistente, tu pregunta y un resumen de tus datos se envían al proveedor elegido.</p>
     </div></div>`;
 }
@@ -32,6 +39,21 @@ export function bindAiCard(el, rerender) {
   const card = el.querySelector('[data-aicard]');
   if (!card) return;
   const q = (s) => card.querySelector(s);
+  // Activación por voz
+  const wakeText = (s) => ({ off: 'Apagado', downloading: `Descargando modelo… ${s.pct || 0}%`, loading: 'Preparando…', listening: 'Escuchando: di "Aries"', paused: 'En pausa (vuelve a escuchar al abrir la app)', error: s.message || 'Error' }[s.state] || '');
+  const paintWake = (s) => { const w = card.querySelector('[data-wakestate]'); if (w?.isConnected) { w.textContent = wakeText(s); w.className = 'small ' + (s.state === 'listening' ? 'up' : s.state === 'error' ? 'down' : ''); } };
+  paintWake(wakeStatus());
+  onWakeStatus(paintWake);
+  q('[data-wake]').addEventListener('change', async (e) => {
+    if (e.target.checked) {
+      const d = await canDictate();
+      if (!d.ok) toast('Ojo: ' + d.why, { ms: 6000 });
+      setWakePrefs({ on: true });
+      startWake(window.onAries);
+    } else { setWakePrefs({ on: false }); stopWake(); }
+  });
+  q('[data-wakesens]').addEventListener('change', (e) => { setWakePrefs({ sens: Number(e.target.value) }); toast('Sensibilidad guardada'); });
+  q('[data-wakedel]').addEventListener('click', async () => { setWakePrefs({ on: false }); stopWake(); await deleteWakeModel(); toast('Modelo borrado (se descarga de nuevo si lo activas)'); rerender(); });
   // Voces del dispositivo
   listVoices().then(({ es, others }) => {
     const sel = q('[data-voice]');
