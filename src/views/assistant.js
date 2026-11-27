@@ -14,6 +14,10 @@ import { faceEvent, onFaceRequest, faceOpen, faceSession, faceMini } from '../fa
 import { AriesNative } from '../wakeword.js';
 import { addMemory, findMemory } from '../memory.js';
 import { oneOffDate, DEFAULT_TONE } from '../alarms.js';
+import { openApp, quickOpen } from '../launcher.js';
+import { searchDocs, openDoc, readDocText, docsSupported, listFolders } from '../docs.js';
+import { searchMail, gmailReady } from '../gmail.js';
+import { calculate } from '../calc.js';
 
 const LS = 'organizador-ia-chat';
 let chat = (() => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } })();
@@ -94,6 +98,10 @@ function actionLabel(a) {
     case 'entrenamiento': return { ic: 'barbell', t: `Entrenamiento: ${a.grupo || ''}`, s: [(a.ejercicios || []).map((e) => `${e.nombre} ${e.series || ''}x${e.reps || ''}${e.peso ? ' ' + e.peso + ' kg' : ''}`).join(', '), a.fecha].filter(Boolean).join(' · ') };
     case 'cliente': return { ic: 'user', t: `Cliente: ${a.nombre || ''}`, s: [a.telefono, a.ciudad].filter(Boolean).join(' · ') };
     case 'pedido': return { ic: 'receipt', t: `Pedido: ${a.descripcion || ''}`, s: [a.cliente, a.precio ? fmtMoney(a.precio) : '', a.estado].filter(Boolean).join(' · ') };
+    case 'abrir_app': return { ic: 'external-link', t: `Abrir ${a.app || 'app'}`, s: '' };
+    case 'abrir': return { ic: 'external-link', t: { youtube: 'YouTube', spotify: 'Spotify', maps: 'Mapa', ruta: 'Ruta', whatsapp: 'WhatsApp', llamar: 'Llamar', web: 'Buscar en internet' }[a.destino] || 'Abrir', s: a.consulta || a.texto || a.telefono || '' };
+    case 'abrir_documento': return { ic: 'file', t: `Abrir documento: ${a.nombre || ''}`, s: '' };
+    case 'calcular': case 'buscar_correos': case 'buscar_documentos': case 'leer_documento': return { ic: 'search', t: 'Consulta', s: '' };
     case 'recordar': return { ic: 'star', t: `Recordar: ${a.texto || ''}`, s: 'Memoria del asistente' };
     case 'olvidar': { const m = findMemory(a.texto || ''); return { ic: 'trash', t: `Olvidar: ${m?.text || a.texto || ''}`, s: m ? 'Se borra de la memoria del asistente' : 'No encontré ese recuerdo' }; }
     case 'alarma': return { ic: 'alarm', t: `Alarma ${a.hora || ''}${a.titulo ? ' · ' + a.titulo : ''}`, s: [(a.dias || []).length ? a.dias.join(', ') : a.fecha ? 'una vez · ' + a.fecha : 'una vez', { tablet: 'tableta', pc: 'PC', ambos: 'tableta y PC' }[a.dispositivo || 'tablet']].filter(Boolean).join(' · ') };
@@ -189,6 +197,42 @@ function matchAlarm(a) {
   return al.find((x) => a.hora && x.time === String(a.hora).padStart(5, '0')) || al.find((x) => a.titulo && norm(x.label || '').includes(norm(a.titulo))) || null;
 }
 
+// ---------- Acciones inmediatas y consultas ----------
+const INSTANT = new Set(['abrir_app', 'abrir', 'abrir_documento']);
+const LOOKUPS = new Set(['calcular', 'buscar_correos', 'buscar_documentos', 'leer_documento']);
+
+async function runInstant(a) {
+  if (a.tipo === 'abrir_app') return `Abrí ${await openApp(a.app || '')}.`;
+  if (a.tipo === 'abrir') return quickOpen(a);
+  if (a.tipo === 'abrir_documento') {
+    const [d] = await searchDocs(a.nombre || '', 1);
+    if (!d) throw new Error(`No encontré un documento llamado "${a.nombre}".`);
+    await openDoc(d);
+    return `Abrí ${d.name}.`;
+  }
+  return '';
+}
+
+const mailDate = (d) => { const t = new Date(d); return isNaN(t) ? d : t.toLocaleString('es-CO', { weekday: 'short', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }); };
+
+/** Hace una consulta (cuenta, correos o documentos) y devuelve el texto con el resultado para la IA */
+async function runLookup(a) {
+  try {
+    if (a.tipo === 'calcular') return 'Calculadora: ' + (await calculate(a));
+    if (a.tipo === 'buscar_correos') {
+      if (!gmailReady()) return 'Gmail no está conectado: dile al usuario que lo conecte en Ajustes → Asistente de IA → Correos.';
+      const mails = await searchMail(a.consulta || 'in:inbox', Math.max(1, Math.min(10, Number(a.cantidad) || 5)), { full: !!a.completo });
+      if (!mails.length) return `Gmail: no hay correos para "${a.consulta || 'in:inbox'}".`;
+      return `Correos (${a.consulta || 'in:inbox'}):\n` + mails.map((m, i) => `${i + 1}. De: ${m.from} · Asunto: ${m.subject} · ${mailDate(m.date)}${m.unread ? ' · sin leer' : ''}\n${m.body ? 'Texto: ' + m.body : 'Vista previa: ' + m.snippet}`).join('\n\n');
+    }
+    const docs = await searchDocs(a.nombre || '', a.tipo === 'leer_documento' ? 3 : 10);
+    if (!docs.length) { const f = await listFolders().catch(() => []); return `No encontré documentos con "${a.nombre}".${f.length ? '' : ' (El usuario no ha elegido carpetas de documentos en Ajustes; solo se buscó en sus apuntes.)'}`; }
+    if (a.tipo === 'buscar_documentos') return 'Documentos encontrados:\n' + docs.map((d, i) => `${i + 1}. ${d.name} (${d.where || ''})`).join('\n');
+    const d = docs[0];
+    return `Documento "${d.name}" (${d.where || ''}):\n${await readDocText(d)}`;
+  } catch (e) { return `Error (${a.tipo}): ` + (e.message || e); }
+}
+
 // ---------- Confirmar por voz o chat ----------
 const CONFIRM_WINDOW = 2 * 60000; // la confirmación vale para la propuesta de los últimos 2 minutos
 const DANGER = new Set(['borrar', 'impresora']); // tipos que siempre piden una segunda confirmación
@@ -266,7 +310,8 @@ async function send(el, text, { byVoice = false } = {}) {
     if (/impres|impresora|printer/i.test(text) && printerIp()) await Promise.race([pollPrinter(), new Promise((r) => setTimeout(r, 3000))]);
     const spoken = (byVoice && voiceMode !== 'apagada') || voiceMode === 'siempre';
     const pendNote = pend ? `\n\n# Propuestas pendientes de confirmar\nEn tu respuesta anterior propusiste esto y el usuario aún no lo ha confirmado:\n${pend.open.map((a, i) => `${i + 1}. ${actionLabel(a)?.t}${actionLabel(a)?.s ? ' (' + actionLabel(a).s + ')' : ''}`).join('\n')}\nSi el usuario acepta o rechaza algunas (por ejemplo "solo la primera" o "todas menos el examen"), agrega al JSON "confirmar": [números] con las que acepta y "descartar": [números] con las que rechaza, y en "respuesta" dile en una frase qué se agregó. No las repitas en "acciones". Si pide cambiar algo de una propuesta, descártala y propón la versión corregida en "acciones".` : '';
-    const system = SYSTEM + pendNote + (spoken ? '\n\n# Respuesta hablada\nEsta respuesta se va a leer en voz alta. Escribe "respuesta" como hablaría una persona: frases cortas y naturales, en tono cercano, sin listas, viñetas, negritas, emojis ni símbolos. Máximo 3 o 4 frases, salvo que te pidan más detalle.' : '') + '\n\n# Datos del usuario\n' + buildContext(text, PROVIDERS[cfg.provider].budget);
+    const caps = `\n\n# Este dispositivo\nGmail conectado: ${gmailReady() ? 'sí' : 'no'}. Puede abrir apps y documentos: ${docsSupported() ? 'sí' : 'no (solo en la app instalada)'}.`;
+    const system = SYSTEM + pendNote + caps + (spoken ? '\n\n# Respuesta hablada\nEsta respuesta se va a leer en voz alta. Escribe "respuesta" como hablaría una persona: frases cortas y naturales, en tono cercano, sin listas, viñetas, negritas, emojis ni símbolos. Máximo 3 o 4 frases, salvo que te pidan más detalle.' : '') + '\n\n# Datos del usuario\n' + buildContext(text, PROVIDERS[cfg.provider].budget);
     const history = chat.slice(-9).map((m) => ({ role: m.role, content: m.role === 'assistant' ? JSON.stringify({ respuesta: m.content, acciones: [] }) : m.content }));
     let reply = parseJsonReply(await complete({ system, messages: history }));
     let actions = (Array.isArray(reply.acciones) ? reply.acciones : []).filter((a) => actionLabel(a));
@@ -276,8 +321,25 @@ async function send(el, text, { byVoice = false } = {}) {
       actions = (Array.isArray(reply.acciones) ? reply.acciones : []).filter((a) => actionLabel(a));
       if (!actions.length && claimsDone(reply.respuesta)) reply.respuesta = String(reply.respuesta) + '\n\n**Ojo:** no se agregó nada en la app. Intenta pedírmelo con más detalle.';
     }
+    // Consultas (cuentas, correos, documentos): se hacen y se le devuelven los resultados a la IA (máx. 3 vueltas)
+    let convo = [...history];
+    for (let round = 0; round < 3; round++) {
+      const looks = (Array.isArray(reply.acciones) ? reply.acciones : []).filter((a) => LOOKUPS.has(a.tipo));
+      if (!looks.length) break;
+      faceEvent('thinking');
+      const results = [];
+      for (const a of looks) results.push(await runLookup(a));
+      convo = [...convo, { role: 'assistant', content: JSON.stringify(reply) }, { role: 'user', content: '[Resultados de la app]\n' + results.join('\n\n') + '\n\nCon esto, responde ahora al usuario (usa exactamente los números que dio la calculadora). No repitas las mismas consultas.' }];
+      reply = parseJsonReply(await complete({ system, messages: convo }));
+    }
+    actions = (Array.isArray(reply.acciones) ? reply.acciones : []).filter((a) => actionLabel(a) && !LOOKUPS.has(a.tipo));
+    // Abrir apps, enlaces y documentos: de inmediato
+    const instantNotes = [];
+    for (const a of actions.filter((x) => INSTANT.has(x.tipo))) {
+      try { a._msg = await runInstant(a); } catch (err) { a._err = err.message || String(err); instantNotes.push(a._err); }
+    }
     // Confirmaciones parciales que decidió la IA
-    let extra = '';
+    let extra = instantNotes.join(' ');
     if (pend) {
       const pick = (arr) => (Array.isArray(arr) ? arr : []).map(Number).filter((n) => n >= 1 && n <= pend.open.length).map((n) => pend.open[n - 1]);
       const yes = pick(reply.confirmar), no = pick(reply.descartar);
@@ -289,6 +351,7 @@ async function send(el, text, { byVoice = false } = {}) {
     // "recordar" se guarda solo (se puede borrar en Ajustes); lo demás espera confirmación
     let remembered = 0;
     for (const a of acts) if (a.tipo === 'recordar') { try { runAction(a); a._done = true; remembered++; } catch { /* */ } }
+    for (const a of acts) if (INSTANT.has(a.tipo)) { a._done = !a._err; a._dropped = !!a._err; }
     if (remembered) commit();
     chat.push({ role: 'assistant', content, at: Date.now(), actions: acts });
     actions = acts.filter((a) => !a._done);
@@ -374,7 +437,7 @@ function draw(el) {
   if (!box) return;
   box.innerHTML = chat.length ? chat.map((m, i) => m.role === 'user'
     ? `<div class="msg me">${esc(m.content)}</div>`
-    : `<div class="msg ai ${m.error ? 'err' : ''}">${md(m.content)}${(m.actions || []).length ? `<div class="acts">${m.actions.map((a) => { const L = actionLabel(a); return `<div class="act">${icon(L.ic, 17)}<div class="grow"><div class="title">${esc(L.t)}</div>${L.s ? `<div class="meta">${esc(L.s)}</div>` : ''}</div>${a._done ? `<span class="pill ok">${icon('check', 12)} ${a.tipo === 'recordar' ? 'Recordado' : 'Agregado'}</span>` : a._dropped ? '<span class="pill">Descartado</span>' : `<button class="btn sm primary" data-act="${i}:${esc(a._id)}">Agregar</button>`}</div>`; }).join('')}${m.actions.filter((a) => !a._done && !a._dropped).length > 1 ? `<button class="btn sm" data-actall="${i}" style="align-self:flex-start">Agregar todo</button>` : ''}</div>` : ''}</div>`).join('')
+    : `<div class="msg ai ${m.error ? 'err' : ''}">${md(m.content)}${(m.actions || []).length ? `<div class="acts">${m.actions.map((a) => { const L = actionLabel(a); return `<div class="act">${icon(L.ic, 17)}<div class="grow"><div class="title">${esc(L.t)}</div>${L.s ? `<div class="meta">${esc(L.s)}</div>` : ''}</div>${a._done ? `<span class="pill ok">${icon('check', 12)} ${a.tipo === 'recordar' ? 'Recordado' : INSTANT.has(a.tipo) ? 'Hecho' : 'Agregado'}</span>` : a._dropped ? '<span class="pill">Descartado</span>' : `<button class="btn sm primary" data-act="${i}:${esc(a._id)}">Agregar</button>`}</div>`; }).join('')}${m.actions.filter((a) => !a._done && !a._dropped).length > 1 ? `<button class="btn sm" data-actall="${i}" style="align-self:flex-start">Agregar todo</button>` : ''}</div>` : ''}</div>`).join('')
     + (busy ? `<div class="msg ai typing"><span></span><span></span><span></span></div>` : '')
     : `<div class="empty">${icon('sparkles', 30)}<div>Pregúntame por tu semana, pídeme que agende algo o cuéntame qué comiste.</div></div>`;
   box.scrollTop = box.scrollHeight;

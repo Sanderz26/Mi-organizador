@@ -15,12 +15,22 @@ public class MainActivity extends BridgeActivity {
     public static volatile boolean launchedByAries = false;
     /** Alarma que abrió la app antes de que la app web estuviera lista */
     public static volatile String pendingAlarm = null;
+    /** Carita chiquita con la app cerrada: la app arranca por detrás, sin mostrarse */
+    public static volatile boolean pendingBubble = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         registerPlugin(AriesPlugin.class);
+        registerPlugin(DevicePlugin.class);
         super.onCreate(savedInstanceState);
-        handleAries(getIntent());
+        Intent in = getIntent();
+        if (in != null && in.getBooleanExtra("bubbleBoot", false)) {
+            in.removeExtra("bubbleBoot");
+            moveTaskToBack(true);
+            overridePendingTransition(0, 0);
+            return;
+        }
+        handleAries(in);
     }
 
     @Override

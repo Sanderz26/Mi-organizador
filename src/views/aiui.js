@@ -4,6 +4,9 @@ import { esc, toast, norm, confirmModal } from '../util.js';
 import { PROVIDERS, aiConfig, localAiConfig, saveAiConfig, setAiShared, listModels, rankModels, complete } from '../ai.js';
 import { commit, state } from '../store.js';
 import { addMemory, MAX_MEMORIES } from '../memory.js';
+import { googleSignIn, googleAccount, googleAvailable } from '../google.js';
+import { gmailReady } from '../gmail.js';
+import { docsSupported, listFolders, addFolder, removeFolder } from '../docs.js';
 import { listVoices, voicePrefs, setVoicePrefs, speak, prettyVoice, canDictate, voiceEngine } from '../voice.js';
 import { REGIONS, normRegion, azureConfig, localAzure, saveAzure, setAzureShared, fetchVoices, prettyAzure, usage, FREE_CHARS, styleFor, setStyleFor, voiceInfo, styleName } from '../azuretts.js';
 import { wakePrefs, setWakePrefs, startWake, stopWake, wakeStatus, onWakeStatus, deleteWakeModel, wakeSupportedHere, wakeWhereNote, AriesNative, nativePermissions, openNativeSetting } from '../wakeword.js';
@@ -91,6 +94,12 @@ export function aiCardHtml() {
         <div class="hint">Dile "Aries, recuerda que…" o agrégalo aquí. Guarda hasta ${MAX_MEMORIES} cosas; en cada pregunta solo le envía a la IA las fijadas (★) y las relacionadas, así no gasta de más.</div></div>
       <div class="full split" style="gap:8px"><input data-memnew placeholder="Ej: Los jueves no puedo ir al gimnasio" style="flex:1;min-width:200px"><button class="btn sm" data-memadd>${icon('plus', 15)} Agregar</button></div>
       <div class="full" data-memwrap>${memListHtml(memQ)}</div>
+      <div class="full" style="margin-top:6px"><h3 style="display:flex;align-items:center;gap:8px">${icon('mail', 16)} Correos (Gmail)</h3>
+        <div class="hint">Aries puede leerte, buscar y resumir tus correos ("léeme el último correo", "¿qué me escribió la universidad?"). Solo lectura: no envía ni borra nada.</div></div>
+      <div class="full split" style="gap:8px">${gmailReady() ? `<span class="pill ok">${icon('check', 12)} Conectado: ${esc(googleAccount()?.email || '')}</span><button class="btn ghost sm" data-gmail>Volver a conectar</button>` : `<button class="btn sm" data-gmail ${googleAvailable() ? '' : 'disabled'}>${icon('mail', 15)} Conectar Gmail</button><span class="tiny muted">${googleAvailable() ? 'Google te mostrará "app no verificada": dale Avanzado → Ir a Organizador, y marca el permiso de correo.' : 'Disponible en la app instalada.'}</span>`}</div>
+      ${docsSupported() ? `<div class="full" style="margin-top:6px"><h3 style="display:flex;align-items:center;gap:8px">${icon('file', 16)} Carpetas de documentos</h3>
+        <div class="hint">Aries busca, abre y lee documentos (PDF, Word, PowerPoint, Excel, texto) en tus apuntes y en estas carpetas de este dispositivo.</div></div>
+      <div class="full" data-folders><div class="small muted">Cargando…</div></div>` : ''}
       <p class="full tiny faint">La clave nunca va al código de la app. Si no marcas la casilla, queda solo en este dispositivo. Al usar el asistente, tu pregunta y un resumen de tus datos se envían al proveedor elegido.</p>
     </div></div>`;
 }
@@ -99,6 +108,30 @@ export function bindAiCard(el, rerender) {
   const card = el.querySelector('[data-aicard]');
   if (!card) return;
   const q = (s) => card.querySelector(s);
+  // Gmail
+  q('[data-gmail]')?.addEventListener('click', async (e) => {
+    e.target.disabled = true;
+    try { await googleSignIn({ gmail: true }); sound('complete'); toast('Gmail conectado', { icon: 'check' }); rerender(); }
+    catch (err) { toast(err.message, { ms: 7000 }); sound('error'); e.target.disabled = false; }
+  });
+  // Carpetas de documentos
+  const paintFolders = async () => {
+    const box = q('[data-folders]');
+    if (!box) return;
+    const list = await listFolders().catch(() => []);
+    if (!box.isConnected) return;
+    box.innerHTML = `${list.length ? `<div class="list">${list.map((f) => `<div class="row">${icon('file', 16)}<div class="grow small">${esc(f.name)}</div><button class="btn ghost icon sm danger" data-fdel="${esc(f.id)}" aria-label="Quitar">${icon('x', 15)}</button></div>`).join('')}</div>` : '<p class="small muted" style="margin:0 0 6px">Todavía no has elegido carpetas. Sin carpetas, Aries solo busca en los archivos de tus apuntes.</p>'}
+      <button class="btn sm" data-fadd style="margin-top:6px">${icon('plus', 15)} Agregar carpeta</button>`;
+  };
+  if (q('[data-folders]')) {
+    paintFolders();
+    q('[data-folders]').addEventListener('click', async (e) => {
+      const b = e.target.closest('button');
+      if (!b) return;
+      if ('fadd' in b.dataset) { try { const f = await addFolder(); if (f) { toast('Carpeta agregada'); sound('complete'); } } catch (err) { if (!/eleg/i.test(err.message || '')) toast(err.message || 'No se pudo agregar'); } paintFolders(); }
+      else if (b.dataset.fdel) { await removeFolder(b.dataset.fdel); paintFolders(); }
+    });
+  }
   // Memoria de Aries
   const paintMem = () => { const w = q('[data-memwrap]'); if (w) { w.innerHTML = memListHtml(memQ); const i = w.querySelector('[data-memq]'); if (i && memQ) { i.focus(); i.setSelectionRange(memQ.length, memQ.length); } } };
   const addFromInput = () => { const i = q('[data-memnew]'); const v = i.value.trim(); if (!v) return; try { addMemory(v); commit(); i.value = ''; sound('complete'); paintMem(); } catch (e) { toast(e.message); } };
