@@ -7,6 +7,7 @@ import { timerElapsed, timerLabel, togglePause, stopTimer } from './timer.js';
 import { startReminderLoop, refreshReminders } from './notify.js';
 import { startPrinterLoop } from './printer.js';
 import { openFace, faceUnlocked, faceOpen, closeFace } from './face.js';
+import { setAudioSink } from './voice.js';
 import * as alarmsView from './views/alarmsview.js';
 import { startAlarms } from './alarms.js';
 import { syncHolidaysOnline } from './holidays.js';
@@ -96,6 +97,14 @@ function openMore() {
 
 /** Al decir "Aries": trae la app al frente, abre el asistente y empieza a escuchar */
 export function onAries(o = {}) {
+  // Tableta en otra app: carita chiquita en una esquina; la conversación sigue aquí por detrás
+  if (o.bubble) {
+    setAudioSink({ play: (b64) => AriesNative.playAudio({ b64 }), stop: () => AriesNative.stopAudio().catch(() => {}) });
+    openFace({ mini: true, onClose: () => { setAudioSink(null); resumeWake(); AriesNative?.bubbleHide().catch(() => {}); } });
+    requestVoiceStart();
+    if (parseHash().route === 'asistente') render(); else go('asistente');
+    return;
+  }
   sound('start');
   window.native?.showWindow?.();
   openFace({

@@ -2,6 +2,7 @@
 import { speechLevel } from './voice.js';
 import { icon } from './icons.js';
 import { esc } from './util.js';
+import { AriesNative } from './wakeword.js';
 
 const IDLE_CLOSE = 30000; // se cierra sola tras 30 s sin actividad
 let root = null, raf = 0, idleTimer = 0;
@@ -13,7 +14,10 @@ const requestors = new Set();
 /** El asistente se registra aquí para que la carita le pida escuchar */
 export const onFaceRequest = (fn) => requestors.add(fn);
 const request = (kind) => requestors.forEach((fn) => fn(kind));
-export const faceOpen = () => !!root;
+let mini = false; // carita chiquita nativa (sobre otras apps en la tableta)
+export const faceOpen = () => !!root || mini;
+export const faceMini = () => mini;
+const bubble = (state, text) => AriesNative?.bubbleState(text === undefined ? { state } : { state, text }).catch(() => {});
 
 const STATUS = {
   sleep: 'Di “Aries” para hablarme',
@@ -29,6 +33,12 @@ const STATUS = {
 export function openFace(o = {}) {
   opts = o;
   followUps = 0;
+  if (o.mini) {
+    if (root) closeFace();
+    mini = true;
+    setState('listening');
+    return;
+  }
   if (root) { setLocked(); setState('listening'); return; }
   root = document.createElement('div');
   root.className = 'face-ov';
@@ -77,6 +87,15 @@ function setLocked() { root?.querySelector('[data-funlock]')?.toggleAttribute('h
 export function faceUnlocked() { opts.locked = false; setLocked(); }
 
 export function closeFace() {
+  if (mini) {
+    mini = false;
+    session++;
+    clearTimeout(idleTimer);
+    clearTimeout(listenTimer);
+    request('close');
+    opts.onClose?.();
+    return;
+  }
   if (!root) return;
   session++;
   cancelAnimationFrame(raf);
@@ -93,6 +112,12 @@ export function closeFace() {
 
 function setState(s, text) {
   st = s;
+  if (mini) {
+    bubble(s === 'sleep' ? 'idle' : s, s === 'error' ? text || 'Algo salió mal' : undefined);
+    clearTimeout(idleTimer);
+    if (s === 'idle' || s === 'sleep' || s === 'error') idleTimer = setTimeout(closeFace, 20000);
+    return;
+  }
   if (!root) return;
   root.dataset.state = s;
   root.querySelector('[data-fstatus]').textContent = s === 'error' ? text || 'Algo salió mal' : STATUS[s] ?? '';
@@ -102,6 +127,7 @@ function setState(s, text) {
 
 /** Eventos del asistente: listening | transcribing | heard | thinking | speaking | spoke | idle | nothing | error */
 export function faceEvent(type, data = {}) {
+  if (mini) return miniEvent(type, data);
   if (!root) return;
   const said = root.querySelector('[data-fsaid]'), reply = root.querySelector('[data-freply]');
   switch (type) {
@@ -120,6 +146,26 @@ export function faceEvent(type, data = {}) {
     case 'error': setState('error', data.text); break;
   }
 }
+
+function miniEvent(type, data) {
+  switch (type) {
+    case 'listening': if (st !== 'listening') setState('listening'); break;
+    case 'transcribing': setState('transcribing'); break;
+    case 'heard': st = 'thinking'; bubble('thinking', data.text ? `“${data.text}”` : ''); break;
+    case 'thinking': if (st !== 'thinking') { st = 'thinking'; bubble('thinking'); } break;
+    case 'speaking': st = 'speaking'; clearTimeout(idleTimer); bubble('speaking', data.text || ''); break;
+    case 'spoke':
+      if (followUps < 2 && (followUps < 1 || data.pending)) { followUps++; st = 'listening'; bubble('listening'); clearTimeout(listenTimer); listenTimer = setTimeout(() => { if (mini) request('listen'); }, 350); }
+      else setState('idle');
+      break;
+    case 'idle': st = 'idle'; bubble('idle', data.text || undefined); clearTimeout(idleTimer); idleTimer = setTimeout(closeFace, 20000); break;
+    case 'nothing': setState('idle'); break;
+    case 'error': setState('error', data.text); break;
+  }
+}
+
+// La carita chiquita avisa si la cerraste (×) o la tocaste para abrir la app
+AriesNative?.addListener('bubble', (d) => { if (mini && (d.kind === 'closed' || d.kind === 'expand')) closeFace(); });
 
 // Si se apaga la pantalla o la app pasa al fondo DE VERDAD (más de 3 s), la conversación termina y se suelta el micrófono.
 // Al prender la pantalla sobre el bloqueo, Android esconde la app un instante: eso no debe cerrar la carita.

@@ -59,6 +59,7 @@ public class AriesService extends Service implements RecognitionListener {
 
     public interface Listener {
         void onWake();
+        void onWakeBubble();
         void onStatus(String state, int pct, String reason);
     }
 
@@ -330,6 +331,18 @@ public class AriesService extends Service implements RecognitionListener {
         boolean visible = MainActivity.visible;
         Listener l = listener;
         if (visible && l != null) { l.onWake(); return; }
+        // Pantalla prendida y desbloqueada, usando otra app: carita chiquita en una esquina
+        PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        boolean onAndUnlocked = pm.isInteractive() && (km == null || !km.isKeyguardLocked());
+        if (onAndUnlocked && l != null && AriesPlugin.self != null && AriesBubble.canShow(this)) {
+            AriesBubble.show(this);
+            l.onWakeBubble();
+            // Si la app no responde en 6 s, se quita la carita y Aries vuelve a escuchar
+            main.postDelayed(() -> { if (AriesBubble.showing() && !AriesPlugin.bubbleAlive) { AriesBubble.hide(); appHolds = false; evaluate(); } }, 6000);
+            return;
+        }
+        // Pantalla apagada o bloqueada: carita grande
         launchUi();
     }
 
