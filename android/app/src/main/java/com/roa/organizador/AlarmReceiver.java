@@ -13,11 +13,15 @@ public class AlarmReceiver extends BroadcastReceiver {
         switch (a) {
             case AlarmScheduler.ACTION_FIRE:
                 AlarmScheduler.ring(c, id);
-                AlarmScheduler.rescheduleAll(c); // la siguiente vez (si se repite)
+                AlarmScheduler.rescheduleAll(c); // la siguiente vez (si se repite); quita la pospuesta que ya sonó
+                AriesPlugin.fireSnoozes();
                 break;
             case AlarmScheduler.ACTION_SNOOZE:
                 AlarmScheduler.snooze(c, id, 0);
                 AriesPlugin.fireAlarmStopped(id);
+                break;
+            case AlarmScheduler.ACTION_UNSNOOZE:
+                AlarmScheduler.unsnooze(c, id);
                 break;
             case AlarmScheduler.ACTION_DISMISS:
                 AlarmScheduler.stop(c, id);
