@@ -23,4 +23,11 @@ contextBridge.exposeInMainWorld('native', {
   checkUpdate: () => ipcRenderer.invoke('update:check'),
   installUpdate: () => ipcRenderer.invoke('update:install'),
   onUpdate: (cb) => ipcRenderer.on('update', (_e, u) => cb(u)),
+  listApps: () => ipcRenderer.invoke('apps:list'),
+  openApp: (p) => ipcRenderer.invoke('apps:open', p),
+  openExternal: (url) => ipcRenderer.invoke('open:external', url),
+  pickDocsFolder: () => ipcRenderer.invoke('docs:pickFolder'),
+  searchDocs: (opts) => ipcRenderer.invoke('docs:search', opts),
+  readDoc: (opts) => ipcRenderer.invoke('docs:read', opts),
+  openDoc: (opts) => ipcRenderer.invoke('docs:open', opts),
 });

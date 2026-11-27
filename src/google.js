@@ -6,6 +6,9 @@ import { isWindows, isAndroid, httpRequest } from './platform.js';
 
 const LS = 'organizador-google';
 const SCOPES = 'openid email https://www.googleapis.com/auth/drive.file';
+export const GMAIL_SCOPE = 'https://www.googleapis.com/auth/gmail.readonly';
+/** ¿La cuenta conectada ya dio permiso de leer Gmail? */
+export const googleHasGmail = () => String(saved()?.scopes || '').includes(GMAIL_SCOPE);
 let access = { token: '', exp: 0 };
 
 const b64url = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -63,13 +66,13 @@ function waitForAndroidRedirect(state) {
 }
 
 /** Abre la ventana de Google para elegir la cuenta y dar permiso */
-export async function googleSignIn() {
+export async function googleSignIn({ gmail = googleHasGmail() } = {}) {
   const c = client();
   if (!c.id) throw new Error('La conexión con Google aún no está configurada en esta versión.');
   const verifier = randomString(64);
   const state = randomString(24);
   const base = 'https://accounts.google.com/o/oauth2/v2/auth?' + form({
-    client_id: c.id, response_type: 'code', scope: SCOPES, code_challenge: await challenge(verifier), code_challenge_method: 'S256',
+    client_id: c.id, response_type: 'code', scope: SCOPES + (gmail ? ' ' + GMAIL_SCOPE : ''), include_granted_scopes: 'true', code_challenge: await challenge(verifier), code_challenge_method: 'S256',
     state, access_type: 'offline', prompt: 'consent select_account',
   });
   let res;
@@ -84,7 +87,8 @@ export async function googleSignIn() {
   const t = await tokenRequest({ grant_type: 'authorization_code', code: res.code, client_id: c.id, client_secret: c.secret || undefined, redirect_uri: res.redirectUri, code_verifier: verifier });
   if (!t.refresh_token) throw new Error('Google no entregó un permiso permanente; intenta de nuevo.');
   access = { token: t.access_token, exp: Date.now() + (t.expires_in - 60) * 1000 };
-  const account = { refresh: t.refresh_token, email: emailFromIdToken(t.id_token), clientId: c.id };
+  const account = { refresh: t.refresh_token, email: emailFromIdToken(t.id_token), clientId: c.id, scopes: t.scope || '' };
+  if (gmail && !String(t.scope || '').includes(GMAIL_SCOPE)) { save(account); throw new Error('No marcaste el permiso de Gmail. Vuelve a intentarlo y marca la casilla de "Ver tus mensajes de correo".'); }
   save(account);
   return account;
 }

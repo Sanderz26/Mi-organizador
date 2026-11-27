@@ -51,7 +51,14 @@ public class AriesPlugin extends Plugin {
             }
         };
         if (MainActivity.launchedByAries) fireWake(true);
+        if (MainActivity.pendingBubble) { MainActivity.pendingBubble = false; AriesService.Listener l = AriesService.listener; if (l != null) l.onWakeBubble(); }
         if (MainActivity.pendingAlarm != null) fireAlarm(MainActivity.pendingAlarm, true);
+    }
+
+    /** La app se cerró (se quitó de recientes): ya no hay quién maneje la conversación */
+    @Override protected void handleOnDestroy() {
+        if (self == this) self = null;
+        super.handleOnDestroy();
     }
 
     /** launched: la app se abrió desde segundo plano por "Aries" */

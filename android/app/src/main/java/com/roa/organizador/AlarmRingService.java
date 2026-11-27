@@ -116,6 +116,29 @@ public class AlarmRingService extends Service {
         }
         if (Build.VERSION.SDK_INT >= 29) startForeground(NID, n, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         else startForeground(NID, n);
+        if (!preview) showFullScreen(id);
+    }
+
+    /**
+     * Pantalla apagada o bloqueada: prende la pantalla y abre la alarma en grande, aunque la app esté cerrada.
+     * (No depende solo del permiso de "pantalla completa"; con "Mostrar sobre otras apps" se abre directo.)
+     */
+    private void showFullScreen(String id) {
+        if (MainActivity.visible) return;
+        android.os.PowerManager pm = (android.os.PowerManager) getSystemService(POWER_SERVICE);
+        android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
+        boolean inUse = pm.isInteractive() && (km == null || !km.isKeyguardLocked());
+        if (inUse) return; // usando la tableta: basta el aviso flotante con Posponer/Apagar
+        try {
+            @SuppressWarnings("deprecation")
+            android.os.PowerManager.WakeLock wl = pm.newWakeLock(android.os.PowerManager.SCREEN_BRIGHT_WAKE_LOCK | android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP | android.os.PowerManager.ON_AFTER_RELEASE, "organizador:alarma-pantalla");
+            wl.acquire(15000);
+        } catch (Throwable ignored) {}
+        if (Build.VERSION.SDK_INT < 23 || android.provider.Settings.canDrawOverlays(this)) {
+            Intent open = new Intent(this, MainActivity.class).putExtra("alarm", id)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+            try { startActivity(open); } catch (Throwable ignored) {}
+        }
     }
 
     static void createChannel(Context c) {

@@ -27,6 +27,9 @@
     "chart.js": "^4.6.2",
     "electron": "^45.5.0",
     "electron-builder": "^26.18.0",
+    "fflate": "^0.8.3",
+    "mathjs": "^15.3.0",
+    "pdfjs-dist": "^6.5.438",
     "vite": "^8.3.8",
     "vosk-browser": "^0.0.8"
   },

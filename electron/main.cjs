@@ -246,3 +246,77 @@ app.whenReady().then(() => {
 });
 app.on('before-quit', () => { quitting = true; });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !closeToTray) app.quit(); });
+
+// ---------- Aries: abrir apps del menú Inicio y enlaces ----------
+function startMenuDirs() {
+  return [
+    path.join(process.env.APPDATA || '', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+    path.join(process.env.ProgramData || 'C:\\ProgramData', 'Microsoft', 'Windows', 'Start Menu', 'Programs'),
+  ];
+}
+ipcMain.handle('apps:list', async () => {
+  const out = [];
+  const walk = async (dir, depth) => {
+    let items = [];
+    try { items = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      const p = path.join(dir, it.name);
+      if (it.isDirectory()) { if (depth < 3) await walk(p, depth + 1); }
+      else if (/\.(lnk|url|appref-ms)$/i.test(it.name) && !/uninstall|desinstalar|readme|help|ayuda/i.test(it.name)) out.push({ label: it.name.replace(/\.(lnk|url|appref-ms)$/i, ''), path: p });
+    }
+  };
+  for (const d of startMenuDirs()) await walk(d, 0);
+  return out;
+});
+ipcMain.handle('apps:open', async (_e, p) => {
+  const ok = startMenuDirs().some((d) => path.resolve(p).toLowerCase().startsWith(path.resolve(d).toLowerCase()));
+  if (!ok) return 'Ruta no permitida';
+  return shell.openPath(p);
+});
+ipcMain.handle('open:external', async (_e, url) => {
+  if (!/^(https?:|spotify:|whatsapp:|mailto:|ms-settings:)/i.test(url)) return false;
+  await shell.openExternal(url);
+  return true;
+});
+
+// ---------- Aries: documentos en las carpetas que elijas ----------
+const insideFolders = (p, folders) => Array.isArray(folders) && folders.some((d) => d && path.resolve(p).toLowerCase().startsWith(path.resolve(d).toLowerCase() + path.sep));
+ipcMain.handle('docs:pickFolder', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Elige una carpeta de documentos', properties: ['openDirectory'] });
+  return r.canceled ? null : r.filePaths[0];
+});
+ipcMain.handle('docs:search', async (_e, { folders, query, max = 20 }) => {
+  const norm = (s) => String(s || '').normalize('NFD').replace(/\p{M}/gu, '').toLowerCase().replace(/[^a-z0-9ñ]+/g, ' ').trim();
+  const words = norm(query).split(' ').filter(Boolean);
+  const found = [];
+  let visited = 0;
+  const walk = async (dir, depth, root) => {
+    if (visited > 30000) return;
+    let items = [];
+    try { items = await fs.promises.readdir(dir, { withFileTypes: true }); } catch { return; }
+    for (const it of items) {
+      visited++;
+      if (it.name.startsWith('.') || /^(node_modules|AppData|\$RECYCLE\.BIN)$/i.test(it.name)) continue;
+      const p = path.join(dir, it.name);
+      if (it.isDirectory()) { if (depth < 6) await walk(p, depth + 1, root); continue; }
+      const n = norm(it.name);
+      if (!words.every((w) => n.includes(w))) continue;
+      let st = null;
+      try { st = await fs.promises.stat(p); } catch { continue; }
+      found.push({ name: it.name, path: p, size: st.size, modified: st.mtimeMs, folder: path.basename(root) });
+    }
+  };
+  for (const f of folders || []) await walk(f, 0, f);
+  found.sort((a, b) => b.modified - a.modified);
+  return found.slice(0, max);
+});
+ipcMain.handle('docs:read', async (_e, { path: p, folders }) => {
+  if (!insideFolders(p, folders)) return { error: 'Ese archivo no está en tus carpetas de documentos' };
+  const st = await fs.promises.stat(p);
+  if (st.size > 25 * 1024 * 1024) return { error: 'El archivo es muy grande para leerlo' };
+  return { b64: (await fs.promises.readFile(p)).toString('base64') };
+});
+ipcMain.handle('docs:open', async (_e, { path: p, folders }) => {
+  if (!insideFolders(p, folders)) return 'Ese archivo no está en tus carpetas de documentos';
+  return shell.openPath(p);
+});

@@ -335,11 +335,21 @@ public class AriesService extends Service implements RecognitionListener {
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         android.app.KeyguardManager km = (android.app.KeyguardManager) getSystemService(KEYGUARD_SERVICE);
         boolean onAndUnlocked = pm.isInteractive() && (km == null || !km.isKeyguardLocked());
-        if (onAndUnlocked && l != null && AriesPlugin.self != null && AriesBubble.canShow(this)) {
+        if (onAndUnlocked && AriesBubble.canShow(this)) {
             AriesBubble.show(this);
-            l.onWakeBubble();
-            // Si la app no responde en 6 s, se quita la carita y Aries vuelve a escuchar
-            main.postDelayed(() -> { if (AriesBubble.showing() && !AriesPlugin.bubbleAlive) { AriesBubble.hide(); appHolds = false; evaluate(); } }, 6000);
+            AriesPlugin.bubbleAlive = false;
+            boolean appAlive = l != null && AriesPlugin.self != null;
+            if (appAlive) l.onWakeBubble();
+            else {
+                // La app está cerrada: se arranca por detrás (sin mostrarse) para que maneje la conversación
+                AriesBubble.state("thinking", "Un momento…");
+                MainActivity.pendingBubble = true;
+                Intent boot = new Intent(this, MainActivity.class).putExtra("bubbleBoot", true)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_NO_ANIMATION);
+                try { startActivity(boot); } catch (Throwable e) { Log.w(TAG, "arrancar app", e); }
+            }
+            // Si la app no responde a tiempo, se quita la carita y Aries vuelve a escuchar
+            main.postDelayed(() -> { if (AriesBubble.showing() && !AriesPlugin.bubbleAlive) { AriesBubble.hide(); MainActivity.pendingBubble = false; appHolds = false; evaluate(); } }, appAlive ? 6000 : 15000);
             return;
         }
         // Pantalla apagada o bloqueada: carita grande
