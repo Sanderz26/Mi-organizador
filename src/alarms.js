@@ -1,15 +1,25 @@
 // Alarmas: para levantarse o para lo que sea. Suenan en la tableta (aunque la app esté cerrada)
 // y/o en el PC (con la app abierta o en la bandeja).
 import { state, commit, onChange, find } from './store.js';
-import { isAndroid, isWindows } from './platform.js';
+import { isAndroid } from './platform.js';
 import { AriesNative } from './wakeword.js';
 import { icon } from './icons.js';
 import { esc, todayKey, toKey, parseKey, DAYS } from './util.js';
 import { agendaFor } from './agenda.js';
 import { speak, stopSpeaking } from './voice.js';
-import { soundConfig } from './sound.js';
+import { alarmMessage } from './alarmtalk.js';
+import { attachmentUrl } from './platform.js';
 
 export const DAY_SHORT = ['D', 'L', 'M', 'X', 'J', 'V', 'S'];
+export const BUILTIN_TONES = [['suave', 'Suave (marimba)'], ['amanecer', 'Amanecer (campanas)'], ['clasica', 'Clásica (bip bip)'], ['digital', 'Digital']];
+export const DEFAULT_TONE = { kind: 'builtin', id: 'suave' };
+export const myTones = () => state.files.filter((f) => f.owner?.type === 'tono');
+export function toneName(t) {
+  if (!t || t.kind === 'default') return 'Tono de alarma de Android';
+  if (t.kind === 'builtin') return (BUILTIN_TONES.find(([k]) => k === t.id) || [, 'Suave'])[1];
+  if (t.kind === 'file') return `Mi tono: ${t.name || 'archivo'}`;
+  return t.name || 'Tono de Android';
+}
 export const thisDevice = () => (isAndroid ? 'tablet' : 'pc');
 export const ringsHere = (a) => a.where === 'ambos' || (a.where || 'tablet') === thisDevice();
 
@@ -76,11 +86,14 @@ export function daySummary() {
   return parts.join(' ');
 }
 
+/** Lo que necesita Android para programar y hacer sonar una alarma */
+export const nativeAlarm = (a) => ({ id: a.id, time: a.time, days: a.days || [], date: a.days?.length ? '' : a.date || '', label: a.label || '', enabled: a.enabled !== false, snooze: Number(a.snooze) || 10, volume: a.volume ?? 80, ramp: a.ramp !== false, vibrate: a.vibrate !== false, tone: a.tone || DEFAULT_TONE });
+
 // ---------- Sincronización con la tableta (las programa Android) ----------
 let lastSig = '';
 export function syncNative(force = false) {
   if (!AriesNative) return;
-  const list = state.alarms.filter((a) => ringsHere(a)).map((a) => ({ id: a.id, time: a.time, days: a.days || [], date: a.days?.length ? '' : a.date || '', label: a.label || '', enabled: a.enabled !== false, snooze: Number(a.snooze) || 10 }));
+  const list = state.alarms.filter((a) => ringsHere(a)).map((a) => nativeAlarm(a));
   const sig = JSON.stringify(list);
   if (!force && sig === lastSig) return;
   lastSig = sig;
@@ -100,28 +113,39 @@ function retireOld() {
 let ringing = null; // { a, el, stopSound, opts }
 const snoozes = {}; // PC: id → hora a la que vuelve a sonar
 
-function startLoopSound() {
-  // PC: melodía de alarma que sube de volumen poco a poco (en la tableta suena la de Android)
-  if (isAndroid) return () => {};
-  let C, ctx, alive = true, n = 0;
-  try { C = window.AudioContext || window.webkitAudioContext; ctx = new C(); ctx.resume?.(); } catch { return () => {}; }
-  const notes = [784, 988, 1175, 988];
-  const beat = () => {
-    if (!alive) return;
-    const vol = Math.min(0.35, 0.06 + n * 0.012) * Math.max(0.3, soundConfig.volume);
-    notes.forEach((f, i) => {
-      const t0 = ctx.currentTime + i * 0.16;
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'triangle'; o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(vol, t0 + 0.02); g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.15);
-      o.connect(g).connect(ctx.destination); o.start(t0); o.stop(t0 + 0.17);
-    });
-    n++;
-    setTimeout(beat, 1300);
-  };
-  beat();
-  return () => { alive = false; try { ctx.close(); } catch { /* */ } };
+async function toneSrc(t) {
+  if (t?.kind === 'file') { const f = state.files.find((x) => x.id === t.fileId); const u = f ? await attachmentUrl(f) : ''; if (u) return u; }
+  const id = t?.kind === 'builtin' ? t.id : 'suave';
+  return `tonos/${(BUILTIN_TONES.find(([k]) => k === id) || ['suave'])[0]}.wav`;
 }
+
+/** PC: suena el tono elegido en bucle, con su volumen y subiendo poco a poco (en la tableta suena Android) */
+function startLoopSound(a, { preview = false } = {}) {
+  if (isAndroid) return () => {};
+  let alive = true, au = null, ramp = 0;
+  const target = Math.max(0.05, Math.min(1, (a.volume ?? 80) / 100));
+  toneSrc(a.tone || DEFAULT_TONE).then((src) => {
+    if (!alive) return;
+    au = new Audio(src);
+    au.loop = true;
+    const ramps = !preview && a.ramp !== false;
+    au.volume = ramps ? target * 0.12 : target;
+    au.play().catch(() => {});
+    if (ramps) ramp = setInterval(() => { if (!au) return; au.volume = Math.min(target, au.volume + target * 0.03); if (au.volume >= target) clearInterval(ramp); }, 1000);
+  });
+  return () => { alive = false; clearInterval(ramp); if (au) { au.pause(); au.src = ''; au = null; } };
+}
+
+let previewStop = null;
+/** Escuchar el tono unos segundos (desde el formulario) */
+export function previewTone(a) {
+  previewStop?.();
+  if (isAndroid) { AriesNative?.previewTone({ alarm: nativeAlarm({ ...a, id: 'prueba', time: '00:00' }) }).catch(() => {}); previewStop = () => AriesNative?.stopPreview().catch(() => {}); return; }
+  const stop = startLoopSound(a, { preview: true });
+  const t = setTimeout(stop, 6000);
+  previewStop = () => { clearTimeout(t); stop(); };
+}
+export const stopPreview = () => { previewStop?.(); previewStop = null; };
 
 export function showRinging(a, opts = {}) {
   if (!a) return;
@@ -144,7 +168,7 @@ export function showRinging(a, opts = {}) {
     </div>`;
   document.body.appendChild(el);
   document.body.classList.add('face-on');
-  ringing = { a, el, stopSound: startLoopSound(), opts };
+  ringing = { a, el, stopSound: startLoopSound(a), opts };
   el.querySelector('[data-aoff]').onclick = () => dismiss();
   el.querySelector('[data-asnooze]').onclick = () => snooze();
   // Si nadie la apaga en 10 minutos, se calla sola (como en Android)
@@ -170,9 +194,10 @@ function dismiss() {
   r.stopSound();
   r.stopSound = () => {};
   delete snoozes[r.a.id];
+  r.dismissed = true;
   if (!(r.a.days || []).length) { const a = find('alarms', r.a.id); if (a) { a.enabled = false; commit(); } }
-  if (r.a.summary) {
-    const text = daySummary();
+  const text = alarmMessage(r.a);
+  if (text) {
     r.el.querySelector('[data-asum]').textContent = text;
     r.el.querySelector('.alarm-btns').innerHTML = `<button class="btn lg" data-aclose>${icon('check', 18)} Listo</button>`;
     r.el.querySelector('[data-aclose]').onclick = () => { stopSpeaking(); closeRinging(true); };
@@ -197,7 +222,7 @@ export function startAlarms() {
   retireOld();
   if (AriesNative) {
     AriesNative.addListener('alarm', (d) => { const a = find('alarms', d.id) || { id: d.id, label: 'Alarma', time: '' }; showRinging(a, { launched: d.launched, locked: d.locked }); });
-    AriesNative.addListener('alarmStopped', (d) => { if (ringing?.a.id === d.id) closeRinging(true); });
+    AriesNative.addListener('alarmStopped', (d) => { if (ringing?.a.id === d.id && !ringing.dismissed) closeRinging(true); });
     syncNative(true);
     onChange(() => syncNative());
     return;

@@ -13,7 +13,7 @@ import { sound } from '../sound.js';
 import { faceEvent, onFaceRequest, faceOpen, faceSession, faceMini } from '../face.js';
 import { AriesNative } from '../wakeword.js';
 import { addMemory, findMemory } from '../memory.js';
-import { oneOffDate } from '../alarms.js';
+import { oneOffDate, DEFAULT_TONE } from '../alarms.js';
 
 const LS = 'organizador-ia-chat';
 let chat = (() => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } })();
@@ -167,7 +167,7 @@ function runAction(a) {
     const time = a.hora.padStart(5, '0');
     const DN = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
     const days = [...new Set((a.dias || []).map((d) => DN[norm(String(d)).trim()]).filter((d) => d !== undefined))];
-    upsert('alarms', { time, label: a.titulo || '', days, date: days.length ? '' : a.fecha && a.fecha >= todayKey() ? a.fecha : oneOffDate(time), where: ['tablet', 'pc', 'ambos'].includes(a.dispositivo) ? a.dispositivo : 'tablet', snooze: 10, summary: a.resumen !== false, enabled: true });
+    upsert('alarms', { time, label: a.titulo || '', days, date: days.length ? '' : a.fecha && a.fecha >= todayKey() ? a.fecha : oneOffDate(time), where: ['tablet', 'pc', 'ambos'].includes(a.dispositivo) ? a.dispositivo : 'tablet', snooze: 10, enabled: true, volume: 80, ramp: true, vibrate: true, tone: DEFAULT_TONE, speech: a.mensaje ? 'mensaje' : 'auto', message: a.mensaje || '' });
   } else if (a.tipo === 'quitar_alarma') {
     const m = matchAlarm(a);
     if (!m) throw new Error('No encontré esa alarma');

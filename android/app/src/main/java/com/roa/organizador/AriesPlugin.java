@@ -170,6 +170,44 @@ public class AriesPlugin extends Plugin {
         call.resolve(o);
     }
 
+    /** Tonos de alarma que trae Android */
+    @PluginMethod
+    public void listTones(PluginCall call) {
+        com.getcapacitor.JSArray arr = new com.getcapacitor.JSArray();
+        for (int type : new int[] { android.media.RingtoneManager.TYPE_ALARM, android.media.RingtoneManager.TYPE_RINGTONE }) {
+            try {
+                android.media.RingtoneManager rm = new android.media.RingtoneManager(getContext());
+                rm.setType(type);
+                android.database.Cursor cur = rm.getCursor();
+                while (cur.moveToNext()) {
+                    JSObject o = new JSObject();
+                    o.put("title", cur.getString(android.media.RingtoneManager.TITLE_COLUMN_INDEX));
+                    o.put("uri", rm.getRingtoneUri(cur.getPosition()).toString());
+                    o.put("type", type == android.media.RingtoneManager.TYPE_ALARM ? "alarma" : "llamada");
+                    arr.put(o);
+                }
+            } catch (Throwable ignored) {}
+        }
+        JSObject r = new JSObject();
+        r.put("tones", arr);
+        call.resolve(r);
+    }
+
+    /** Suena unos segundos con el tono y volumen indicados */
+    @PluginMethod
+    public void previewTone(PluginCall call) {
+        JSObject a = call.getObject("alarm", new JSObject());
+        AlarmRingService.preview(getContext(), a.toString());
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void stopPreview(PluginCall call) { AlarmRingService.stop(getContext()); call.resolve(); }
+
+    /** Hace sonar una alarma ya mismo (para probarla tal cual) */
+    @PluginMethod
+    public void testAlarm(PluginCall call) { AlarmScheduler.ring(getContext(), call.getString("id", "")); call.resolve(); }
+
     @PluginMethod
     public void stopAlarm(PluginCall call) { AlarmScheduler.stop(getContext(), call.getString("id", "")); call.resolve(); }
 

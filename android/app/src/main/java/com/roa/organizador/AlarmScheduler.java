@@ -153,40 +153,16 @@ public class AlarmScheduler {
         nm.createNotificationChannel(ch);
     }
 
-    /** Muestra la alarma sonando: abre la app encima del bloqueo y repite el sonido hasta apagarla */
+    /** Hace sonar la alarma (servicio con el tono, volumen y vibración elegidos) */
     static void ring(Context c, String id) {
-        JSONObject a = find(c, id);
-        String label = a != null ? a.optString("label", "") : "";
-        String time = a != null ? a.optString("time", "") : "";
-        int snoozeMin = a != null ? a.optInt("snooze", 10) : 10;
-        createChannel(c);
-        Intent open = new Intent(c, MainActivity.class).putExtra("alarm", id)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-        PendingIntent po = PendingIntent.getActivity(c, ("ring:" + id).hashCode(), open, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        PendingIntent snooze = PendingIntent.getBroadcast(c, ("snooze:" + id).hashCode(), new Intent(c, AlarmReceiver.class).setAction(ACTION_SNOOZE).putExtra("id", id), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        PendingIntent off = PendingIntent.getBroadcast(c, ("off:" + id).hashCode(), new Intent(c, AlarmReceiver.class).setAction(ACTION_DISMISS).putExtra("id", id), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
-        Notification n = new NotificationCompat.Builder(c, CH)
-            .setSmallIcon(R.drawable.ic_stat_notify)
-            .setContentTitle(label.isEmpty() ? "Alarma" : label)
-            .setContentText("Son las " + time)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-            .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setFullScreenIntent(po, true)
-            .setContentIntent(po)
-            .setOngoing(true)
-            .addAction(0, "Posponer " + snoozeMin + " min", snooze)
-            .addAction(0, "Apagar", off)
-            .setTimeoutAfter(10 * 60000)
-            .build();
-        n.flags |= Notification.FLAG_INSISTENT;
-        ((NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).notify(nid(id), n);
-        // Si la app ya está en pantalla, se le avisa directo (si no, la abre la notificación)
+        AlarmRingService.ring(c, id);
+        // Si la app ya está en pantalla, se le avisa directo (si no, la abre la notificación de pantalla completa)
         if (MainActivity.visible) AriesPlugin.fireAlarm(id, false);
     }
 
     static void stop(Context c, String id) {
         ((NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).cancel(nid(id));
+        AlarmRingService.stop(c);
     }
 
     static void snooze(Context c, String id, int min) {

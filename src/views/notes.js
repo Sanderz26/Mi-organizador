@@ -80,7 +80,7 @@ export function render(el) {
   else if (filterSub !== 'todas') list = list.filter((n) => n.subjectId === filterSub);
   if (query) { const q = query.toLowerCase(); list = list.filter((n) => (n.title + ' ' + n.body).toLowerCase().includes(q)); }
   el.innerHTML = `
-  <div class="page-head"><div><div class="sub">${state.notes.length} notas · ${state.files.length} archivos</div><h1>Notas y apuntes</h1></div>
+  <div class="page-head"><div><div class="sub">${state.notes.length} notas · ${state.files.filter((f) => f.owner?.type !== 'tono').length} archivos</div><h1>Notas y apuntes</h1></div>
     <div class="head-actions"><button class="btn primary" data-newnote>${icon('plus', 16)} Nueva nota</button></div></div>
   <div class="split">
     <input type="search" data-q placeholder="Buscar en tus notas" value="${esc(query)}" style="max-width:320px">
