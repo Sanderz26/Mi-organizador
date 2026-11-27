@@ -26,6 +26,19 @@ export async function canDictate() {
 
 const blobToB64 = (blob) => new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(String(r.result).split(',')[1] || ''); r.onerror = rej; r.readAsDataURL(blob); });
 
+/** Transcribe un WAV en base64 (grabado por la tableta) */
+export async function transcribeB64(b64) {
+  if (!groqKey()) throw new Error('Para escucharte sobre otras apps necesito la clave de Groq.');
+  const r = await httpMultipart({
+    url: 'https://api.groq.com/openai/v1/audio/transcriptions',
+    headers: { Authorization: 'Bearer ' + groqKey() },
+    fields: { model: 'whisper-large-v3-turbo', language: 'es', response_format: 'json', temperature: 0 },
+    file: { field: 'file', name: 'voz.wav', mime: 'audio/wav', b64 },
+  });
+  if (r.status !== 200) throw new Error('No se pudo transcribir el audio (' + r.status + ').');
+  return (JSON.parse(r.text).text || '').trim();
+}
+
 /** Transcribe audio con Whisper en Groq */
 async function transcribe(blob) {
   const mime = blob.type || 'audio/webm';
@@ -191,7 +204,10 @@ export function speechLevel() {
 }
 
 let audio = null;
-let gen = 0; // cada lectura nueva invalida las anteriores
+let gen = 0;
+// Con la app en segundo plano (carita chiquita) la voz de Azure la reproduce Android
+let audioSink = null;
+export const setAudioSink = (sink) => { audioSink = sink; }; // cada lectura nueva invalida las anteriores
 let azureWarned = false;
 
 /** Lee con Azure. Devuelve false si no se pudo (para usar la voz del dispositivo). */
@@ -205,6 +221,7 @@ async function speakAzure(t, pref, finish, opts) {
     return false;
   }
   if (my !== gen) { finish(); return true; } // se canceló mientras llegaba el audio
+  if (audioSink) { try { await audioSink.play(b64); } catch { /* */ } if (my === gen) finish(); return true; }
   const a = new Audio('data:audio/mpeg;base64,' + b64);
   audio = a;
   tapAudio(a);
@@ -256,6 +273,7 @@ export async function speak(text, onEnd, opts = {}) {
 }
 
 export async function stopSpeaking() {
+  if (audioSink && speaking) audioSink.stop();
   gen++;
   speaking = false;
   if (audio) { const a = audio; audio = null; try { a.pause(); } catch { /* */ } a.onended?.(); }

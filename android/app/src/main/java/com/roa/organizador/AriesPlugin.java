@@ -38,6 +38,12 @@ public class AriesPlugin extends Plugin {
         self = this;
         AriesService.listener = new AriesService.Listener() {
             @Override public void onWake() { fireWake(false); }
+            @Override public void onWakeBubble() {
+                bubbleAlive = false;
+                JSObject o = new JSObject();
+                o.put("bubble", true); o.put("launched", false); o.put("locked", false);
+                notifyListeners("wake", o, true);
+            }
             @Override public void onStatus(String state, int pct, String reason) {
                 JSObject o = new JSObject();
                 o.put("state", state); o.put("pct", pct); o.put("reason", reason);
@@ -58,6 +64,81 @@ public class AriesPlugin extends Plugin {
         p.notifyListeners("wake", o, true);
         if (launched) MainActivity.launchedByAries = false;
     }
+
+    /** La app confirmó que maneja la conversación de la carita chiquita */
+    static volatile boolean bubbleAlive = false;
+
+    static void fireBubble(String kind) {
+        AriesPlugin p = self;
+        if (p == null) return;
+        JSObject o = new JSObject();
+        o.put("kind", kind);
+        p.notifyListeners("bubble", o);
+    }
+
+    // ---------- Carita chiquita ----------
+    @PluginMethod
+    public void bubbleState(PluginCall call) {
+        bubbleAlive = true;
+        String st = call.getString("state", "listening");
+        String text = call.getString("text", null);
+        getActivity().runOnUiThread(() -> AriesBubble.state(st, text));
+        call.resolve();
+    }
+
+    @PluginMethod
+    public void bubbleHide(PluginCall call) { getActivity().runOnUiThread(AriesBubble::hide); call.resolve(); }
+
+    @PluginMethod
+    public void bubbleListen(PluginCall call) {
+        bubbleAlive = true;
+        call.setKeepAlive(true);
+        BubbleEars.listen(getContext().getApplicationContext(), new BubbleEars.Done() {
+            @Override public void text(String t) { JSObject o = new JSObject(); o.put("text", t); call.resolve(o); bridge.releaseCall(call); }
+            @Override public void audio(String b64) { JSObject o = new JSObject(); o.put("audio", b64); call.resolve(o); bridge.releaseCall(call); }
+            @Override public void error(String msg) { call.reject(msg); bridge.releaseCall(call); }
+        });
+    }
+
+    @PluginMethod
+    public void bubbleStopListen(PluginCall call) { BubbleEars.stop(); call.resolve(); }
+
+    // ---------- Reproducir voz (Azure) con la app en segundo plano ----------
+    private android.media.MediaPlayer player;
+    private PluginCall playCall;
+
+    @PluginMethod
+    public void playAudio(PluginCall call) {
+        stopPlayer();
+        try {
+            byte[] data = android.util.Base64.decode(call.getString("b64", ""), android.util.Base64.DEFAULT);
+            java.io.File f = new java.io.File(getContext().getCacheDir(), "voz.mp3");
+            try (java.io.FileOutputStream o = new java.io.FileOutputStream(f)) { o.write(data); }
+            player = new android.media.MediaPlayer();
+            player.setAudioAttributes(new android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ASSISTANT).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH).build());
+            player.setDataSource(f.getAbsolutePath());
+            player.setOnCompletionListener(mp -> finishPlay());
+            player.setOnErrorListener((mp, w, e) -> { finishPlay(); return true; });
+            player.prepare();
+            playCall = call;
+            call.setKeepAlive(true);
+            player.start();
+        } catch (Throwable e) { stopPlayer(); call.reject("No se pudo reproducir la voz"); }
+    }
+
+    private void finishPlay() {
+        PluginCall c = playCall;
+        playCall = null;
+        stopPlayer();
+        if (c != null) { c.resolve(); bridge.releaseCall(c); }
+    }
+
+    private void stopPlayer() {
+        if (player != null) { try { player.stop(); } catch (Throwable ignored) {} try { player.release(); } catch (Throwable ignored) {} player = null; }
+    }
+
+    @PluginMethod
+    public void stopAudio(PluginCall call) { finishPlay(); call.resolve(); }
 
     static void fireAlarm(String id, boolean launched) {
         AriesPlugin p = self;

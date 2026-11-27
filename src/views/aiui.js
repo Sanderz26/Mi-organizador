@@ -135,7 +135,7 @@ export function bindAiCard(el, rerender) {
       ['microphone', 'Micrófono', 'Para escuchar "Aries"', 'app'],
       ['notifications', 'Notificaciones', 'Para el aviso fijo y para abrir la app', 'notifications'],
       ['fullScreen', 'Notificaciones de pantalla completa', 'Prende la pantalla y abre la carita con la tableta bloqueada', 'fullScreen'],
-      ['overlay', 'Mostrar sobre otras apps', 'Abre la carita aunque estés usando otra app', 'overlay'],
+      ['overlay', 'Mostrar sobre otras apps', 'Muestra la carita chiquita en una esquina cuando estás en otra app', 'overlay'],
       ['battery', 'Sin restricción de batería', 'Evita que Android apague a Aries', 'battery'],
     ];
     const paintPerms = async () => {

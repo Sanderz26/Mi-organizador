@@ -6,11 +6,12 @@ import { aiConfig, aiReady, complete, buildContext, SYSTEM, parseJsonReply, PROV
 import { award, RULES } from '../xp.js';
 import { awardStudy } from '../timer.js';
 import { toggleTask } from './tasks.js';
-import { canDictate, listen, speak, stopSpeaking } from '../voice.js';
+import { canDictate, listen, speak, stopSpeaking, transcribeB64 } from '../voice.js';
 import { pauseWake, resumeWake } from '../wakeword.js';
 import { printerIp, pollPrinter } from '../printer.js';
 import { sound } from '../sound.js';
-import { faceEvent, onFaceRequest, faceOpen, faceSession } from '../face.js';
+import { faceEvent, onFaceRequest, faceOpen, faceSession, faceMini } from '../face.js';
+import { AriesNative } from '../wakeword.js';
 import { addMemory, findMemory } from '../memory.js';
 import { oneOffDate } from '../alarms.js';
 
@@ -34,10 +35,10 @@ document.addEventListener('visibilitychange', () => {
   clearTimeout(hideStop);
   if (document.visibilityState === 'hidden') {
     hiddenSince = Date.now();
-    hideStop = setTimeout(() => { if (document.visibilityState === 'hidden') { if (micState !== 'idle') mic?.stop(); stopSpeaking(); } }, 2500);
+    hideStop = setTimeout(() => { if (document.visibilityState === 'hidden' && !faceMini()) { if (micState !== 'idle') mic?.stop(); stopSpeaking(); } }, 2500);
   } else hiddenSince = 0;
 });
-const reallyHidden = () => document.visibilityState === 'hidden' && hiddenSince && Date.now() - hiddenSince > 2500;
+const reallyHidden = () => !faceMini() && document.visibilityState === 'hidden' && hiddenSince && Date.now() - hiddenSince > 2500;
 /** Espera a que la app se vea (al despertar la tableta tarda un momento). false si no aparece. */
 async function waitVisible(ms = 5000) {
   const t0 = Date.now();
@@ -328,12 +329,16 @@ async function toggleMic(el, { fromWake = false, fresh = false } = {}) {
   const faceGone = () => fromFace && (!faceOpen() || faceSession() !== sess);
   await pauseWake({ fresh });
   // Al despertar la tableta la app tarda un momento en verse: se espera antes de escuchar
-  const visibleNow = await waitVisible();
+  const visibleNow = faceMini() ? true : await waitVisible();
   // La carita se cerró mientras se preparaba el micrófono, o la pantalla sigue apagada: no se empieza a escuchar
   if (faceGone() || !visibleNow) { resumeWake(); return; }
   try {
     if (!fromWake) sound('start'); // con "Aries" ya sonó al activarse
-    mic = await listen({ onLevel: (l) => { if (micState === 'listening') { setMic(el, 'listening', l); faceEvent('listening', { level: l }); } }, onStopped: () => { setMic(el, 'transcribing'); faceEvent('transcribing'); } });
+    // Carita chiquita sobre otra app: escucha la tableta (dictado de Android o grabación + Whisper)
+    if (faceMini() && AriesNative) {
+      const done = AriesNative.bubbleListen().then(async (r) => (r.audio ? transcribeB64(r.audio) : String(r.text || '').trim()));
+      mic = { done, stop: () => AriesNative.bubbleStopListen().catch(() => {}) };
+    } else mic = await listen({ onLevel: (l) => { if (micState === 'listening') { setMic(el, 'listening', l); faceEvent('listening', { level: l }); } }, onStopped: () => { setMic(el, 'transcribing'); faceEvent('transcribing'); } });
     if (faceGone()) { mic.stop(); }
     setMic(el, 'listening');
     faceEvent('listening', { level: 0 });
