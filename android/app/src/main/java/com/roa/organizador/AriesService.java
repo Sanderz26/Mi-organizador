@@ -293,8 +293,19 @@ public class AriesService extends Service implements RecognitionListener {
     }
 
     // ---------- Resultados de Vosk ----------
-    @Override public void onPartialResult(String hypothesis) {}
-    @Override public void onResult(String hypothesis) { check(hypothesis); }
+    // Detección rápida: si "aries" aparece en dos resultados parciales seguidos, no se espera al silencio final
+    private int partialHits = 0;
+    @Override public void onPartialResult(String hypothesis) {
+        try {
+            String p = new JSONObject(hypothesis).optString("partial", "");
+            float sens = prefs(this).getFloat("sens", 0.8f);
+            if (sens >= 0.9f) return; // sensibilidad baja: solo con el resultado final (menos falsas alarmas)
+            boolean has = (" " + p + " ").contains(" aries ");
+            partialHits = has ? partialHits + 1 : 0;
+            if (partialHits >= (sens <= 0.7f ? 1 : 2)) { partialHits = 0; wake(); }
+        } catch (Exception ignored) {}
+    }
+    @Override public void onResult(String hypothesis) { partialHits = 0; check(hypothesis); }
     @Override public void onFinalResult(String hypothesis) { check(hypothesis); }
     @Override public void onError(Exception e) { Log.e(TAG, "vosk", e); stopRec(); main.postDelayed(this::evaluate, 3000); }
     @Override public void onTimeout() {}
@@ -334,16 +345,19 @@ public class AriesService extends Service implements RecognitionListener {
             .setAction("com.roa.organizador.ARIES")
             .putExtra("aries", true)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_SINGLE_TOP | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
-        // 1) Con el permiso "Mostrar sobre otras apps" se puede abrir directo
-        if (Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this)) {
+        // 1) Con el permiso "Mostrar sobre otras apps" se puede abrir directo (también encima de otras apps)
+        boolean overlay = Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(this);
+        if (overlay) {
             try { startActivity(i); } catch (Throwable e) { Log.w(TAG, "abrir", e); }
         }
+        String hint = overlay ? "Te escucho…" : "Toca aquí para hablar. Para que se abra solo encima de otras apps, activa «Mostrar sobre otras apps» en Ajustes → Asistente de IA.";
         // 2) Notificación de pantalla completa (con la pantalla apagada o bloqueada abre la app)
         PendingIntent pi = PendingIntent.getActivity(this, 7, i, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
         Notification n = new NotificationCompat.Builder(this, CH_WAKE)
             .setSmallIcon(R.drawable.ic_stat_notify)
             .setContentTitle("Aries")
-            .setContentText("Te escucho…")
+            .setContentText(hint)
+            .setStyle(new NotificationCompat.BigTextStyle().bigText(hint))
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
             .setFullScreenIntent(pi, true)
@@ -352,6 +366,8 @@ public class AriesService extends Service implements RecognitionListener {
             .setTimeoutAfter(20000)
             .build();
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).notify(NID_WAKE, n);
+        // Si a los 3 s la app no apareció, Android la bloqueó: se suelta el micrófono para seguir escuchando "Aries"
+        main.postDelayed(() -> { if (!MainActivity.visible) { appHolds = false; evaluate(); } }, overlay ? 4000 : 20000);
     }
 
     // ---------- Estado y notificaciones ----------

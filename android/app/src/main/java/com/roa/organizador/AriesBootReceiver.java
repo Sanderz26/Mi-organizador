@@ -15,6 +15,8 @@ import androidx.core.app.NotificationCompat;
 public class AriesBootReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context c, Intent intent) {
         String a = intent.getAction();
+        // Las alarmas se vuelven a programar al reiniciar, al actualizar la app o si cambia la hora
+        AlarmScheduler.rescheduleAll(c);
         if (!Intent.ACTION_BOOT_COMPLETED.equals(a) && !Intent.ACTION_MY_PACKAGE_REPLACED.equals(a)) return;
         if (!AriesService.prefs(c).getBoolean("enabled", false)) return;
         AriesService.createChannels(c);

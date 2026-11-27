@@ -219,6 +219,11 @@ export function buildContext(question = '', budget = 9000) {
   for (const g of state.gymSessions.slice().sort((a, b) => b.date.localeCompare(a.date)).slice(0, 5)) L.push(`- ${g.date} ${g.muscle || ''}: ${(g.exercises || []).map((e) => `${e.name} ${e.sets}x${e.reps} ${e.weight} kg`).join(', ')}`);
   const mk = today.slice(0, 7);
   const sales = state.sales.filter((x) => x.date.startsWith(mk) && x.status !== 'cotizado');
+  if (state.alarms.length) {
+    const dn = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+    L.push('\n## Alarmas');
+    L.push(state.alarms.map((a) => `- ${a.time} ${a.label || 'Alarma'} · ${(a.days || []).length ? a.days.map((d) => dn[d]).join(',') : 'una vez ' + (a.date || '')} · ${a.where || 'tablet'} · ${a.enabled === false ? 'apagada' : 'activa'}`).join('\n'));
+  }
   L.push('\n## Negocio de impresión 3D (este mes)');
   L.push(`Ventas: ${sum(sales, (x) => x.price)} COP en ${sales.length} pedidos. Gastos del mes: ${sum(state.expenses.filter((x) => x.date.startsWith(mk) && !x.investment), (x) => x.amount)} COP. Clientes registrados: ${state.clients.length}. Pedidos en producción: ${state.sales.filter((x) => x.status === 'produccion').map((x) => x.desc).join(', ') || 'ninguno'}. Entregados sin pagar: ${state.sales.filter((x) => x.status === 'entregado').map((x) => `${x.desc} ${x.price}`).join(', ') || 'ninguno'}.`);
   const pc = printerContext();
@@ -262,6 +267,9 @@ Tipos de acción disponibles (omite los campos que no sepas):
 {"tipo":"cliente","nombre":"...","telefono":"...","ciudad":"..."}
 {"tipo":"pedido","cliente":"...","descripcion":"...","precio":45000,"cantidad":1,"material":"PLA","gramos":120,"horas":5,"estado":"cotizado|produccion|entregado|pagado","fecha":"AAAA-MM-DD"}
 {"tipo":"gasto","concepto":"...","valor":80000,"categoria":"Filamento","inversion":false,"fecha":"AAAA-MM-DD"}
+{"tipo":"alarma","hora":"HH:MM","titulo":"Levantarme","dias":["lunes","martes"],"fecha":"AAAA-MM-DD","dispositivo":"tablet|pc|ambos","resumen":true}
+{"tipo":"quitar_alarma","hora":"HH:MM","titulo":"nombre de una alarma existente"}
+Alarmas: en "dias" pon los días en que se repite (vacío si es una sola vez; entonces usa "fecha"). "dispositivo" por defecto "tablet". "resumen": true si es para levantarse (al apagarla se lee la agenda del día).
 {"tipo":"recordar","texto":"dato breve y claro, ej. 'Los jueves no puede ir al gimnasio'"}
 {"tipo":"olvidar","texto":"el recuerdo que hay que borrar"}
 Memoria: usa "recordar" cuando el usuario diga "recuerda que", "no olvides", "ten en cuenta que" o te pida guardar algo sobre él para el futuro. Escríbelo corto y en tercera persona. "recordar" se guarda solo, sin confirmación: en "respuesta" di algo como "Listo, lo tendré en cuenta". Usa "olvidar" si pide olvidar algo. Usa siempre lo que está en "Lo que el usuario te pidió recordar" para personalizar tus respuestas y planes.

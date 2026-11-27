@@ -12,6 +12,7 @@ import { printerIp, pollPrinter } from '../printer.js';
 import { sound } from '../sound.js';
 import { faceEvent, onFaceRequest, faceOpen, faceSession } from '../face.js';
 import { addMemory, findMemory } from '../memory.js';
+import { oneOffDate } from '../alarms.js';
 
 const LS = 'organizador-ia-chat';
 let chat = (() => { try { return JSON.parse(localStorage.getItem(LS) || '[]'); } catch { return []; } })();
@@ -94,6 +95,8 @@ function actionLabel(a) {
     case 'pedido': return { ic: 'receipt', t: `Pedido: ${a.descripcion || ''}`, s: [a.cliente, a.precio ? fmtMoney(a.precio) : '', a.estado].filter(Boolean).join(' · ') };
     case 'recordar': return { ic: 'star', t: `Recordar: ${a.texto || ''}`, s: 'Memoria del asistente' };
     case 'olvidar': { const m = findMemory(a.texto || ''); return { ic: 'trash', t: `Olvidar: ${m?.text || a.texto || ''}`, s: m ? 'Se borra de la memoria del asistente' : 'No encontré ese recuerdo' }; }
+    case 'alarma': return { ic: 'alarm', t: `Alarma ${a.hora || ''}${a.titulo ? ' · ' + a.titulo : ''}`, s: [(a.dias || []).length ? a.dias.join(', ') : a.fecha ? 'una vez · ' + a.fecha : 'una vez', { tablet: 'tableta', pc: 'PC', ambos: 'tableta y PC' }[a.dispositivo || 'tablet']].filter(Boolean).join(' · ') };
+    case 'quitar_alarma': { const m = matchAlarm(a); return { ic: 'alarm-off', t: `Apagar alarma ${m ? m.time + (m.label ? ' · ' + m.label : '') : a.hora || a.titulo || ''}`, s: m ? '' : 'No encontré esa alarma' }; }
     case 'gasto': return { ic: 'cash', t: `${a.inversion ? 'Inversión' : 'Gasto'}: ${a.concepto || ''}`, s: [a.valor ? fmtMoney(a.valor) : '', a.categoria].filter(Boolean).join(' · ') };
     default: return null;
   }
@@ -158,6 +161,16 @@ function runAction(a) {
     upsert('sales', { date: date || todayKey(), clientId: client?.id || '', kind: 'impresion', desc: a.descripcion || 'Pedido', qty: Number(a.cantidad) || 1, price: Number(a.precio) || 0, material: a.material || 'PLA', grams: Number(a.gramos) || 0, hours: Number(a.horas) || 0, filamentCostKg: st.filamentCostKg, watts: st.printerWatts, kwhCost: st.kwhCost, status: ['cotizado', 'produccion', 'entregado', 'pagado'].includes(a.estado) ? a.estado : 'produccion' });
   } else if (a.tipo === 'gasto') {
     upsert('expenses', { date: date || todayKey(), concept: a.concepto || 'Gasto', amount: Number(a.valor) || 0, category: a.categoria || 'Otro', investment: !!a.inversion });
+  } else if (a.tipo === 'alarma') {
+    if (!/^\d{1,2}:\d{2}$/.test(a.hora || '')) throw new Error('Falta la hora');
+    const time = a.hora.padStart(5, '0');
+    const DN = { domingo: 0, lunes: 1, martes: 2, miercoles: 3, jueves: 4, viernes: 5, sabado: 6 };
+    const days = [...new Set((a.dias || []).map((d) => DN[norm(String(d)).trim()]).filter((d) => d !== undefined))];
+    upsert('alarms', { time, label: a.titulo || '', days, date: days.length ? '' : a.fecha && a.fecha >= todayKey() ? a.fecha : oneOffDate(time), where: ['tablet', 'pc', 'ambos'].includes(a.dispositivo) ? a.dispositivo : 'tablet', snooze: 10, summary: a.resumen !== false, enabled: true });
+  } else if (a.tipo === 'quitar_alarma') {
+    const m = matchAlarm(a);
+    if (!m) throw new Error('No encontré esa alarma');
+    m.enabled = false;
   } else if (a.tipo === 'recordar') {
     addMemory(a.texto);
   } else if (a.tipo === 'olvidar') {
@@ -168,6 +181,11 @@ function runAction(a) {
     const types = ['Desayuno', 'Media mañana', 'Almuerzo', 'Algo', 'Cena', 'Snack'];
     upsert('meals', { date: date || todayKey(), type: types.includes(a.comida) ? a.comida : 'Almuerzo', desc: a.descripcion || 'Comida', kcal: Math.round(Number(a.kcal) || 0), protein: Math.round(Number(a.proteina) || 0) });
   }
+}
+
+function matchAlarm(a) {
+  const al = state.alarms.filter((x) => x.enabled !== false);
+  return al.find((x) => a.hora && x.time === String(a.hora).padStart(5, '0')) || al.find((x) => a.titulo && norm(x.label || '').includes(norm(a.titulo))) || null;
 }
 
 // ---------- Confirmar por voz o chat ----------
@@ -299,7 +317,7 @@ function setMic(el, st, level = 0) {
   if (input) input.placeholder = st === 'listening' ? 'Escuchando… habla y haz una pausa al terminar' : st === 'transcribing' ? 'Entendiendo lo que dijiste…' : 'Escribe o toca el micrófono para hablar';
 }
 
-async function toggleMic(el, { fromWake = false } = {}) {
+async function toggleMic(el, { fromWake = false, fresh = false } = {}) {
   if (micState === 'listening') { mic?.stop(); return; }
   if (micState === 'transcribing' || busy) return;
   const ok = await canDictate();
@@ -308,7 +326,7 @@ async function toggleMic(el, { fromWake = false } = {}) {
   const fromFace = faceOpen();
   const sess = faceSession();
   const faceGone = () => fromFace && (!faceOpen() || faceSession() !== sess);
-  await pauseWake();
+  await pauseWake({ fresh });
   // Al despertar la tableta la app tarda un momento en verse: se espera antes de escuchar
   const visibleNow = await waitVisible();
   // La carita se cerró mientras se preparaba el micrófono, o la pantalla sigue apagada: no se empieza a escuchar
@@ -406,6 +424,6 @@ export function render(el) {
       commit();
     }
   };
-  if (voicePending) { voicePending = false; setTimeout(() => toggleMic(el, { fromWake: true }), 250); }
+  if (voicePending) { voicePending = false; setTimeout(() => toggleMic(el, { fromWake: true, fresh: true }), 0); }
   else if (window.innerWidth > 860) input.focus();
 }
