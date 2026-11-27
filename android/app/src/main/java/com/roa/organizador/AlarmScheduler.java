@@ -32,6 +32,9 @@ public class AlarmScheduler {
     static final String ACTION_FIRE = "com.roa.organizador.ALARM_FIRE";
     static final String ACTION_SNOOZE = "com.roa.organizador.ALARM_SNOOZE";
     static final String ACTION_DISMISS = "com.roa.organizador.ALARM_DISMISS";
+    static final String ACTION_UNSNOOZE = "com.roa.organizador.ALARM_UNSNOOZE";
+    static final String CH_SNOOZE = "alarmas_pospuestas";
+    static final int NID_SNOOZE_BASE = 5400;
     static final int NID_BASE = 5000;
 
     static SharedPreferences prefs(Context c) { return c.getSharedPreferences("alarmas", Context.MODE_PRIVATE); }
@@ -155,6 +158,7 @@ public class AlarmScheduler {
 
     /** Hace sonar la alarma (servicio con el tono, volumen y vibración elegidos) */
     static void ring(Context c, String id) {
+        clearSnoozed(c, id);
         AlarmRingService.ring(c, id);
         // Si la app ya está en pantalla, se le avisa directo (si no, la abre la notificación de pantalla completa)
         if (MainActivity.visible) AriesPlugin.fireAlarm(id, false);
@@ -173,6 +177,52 @@ public class AlarmScheduler {
         try { sn.put(id, System.currentTimeMillis() + min * 60000L); } catch (Exception ignored) {}
         prefs(c).edit().putString("snoozes", sn.toString()).apply();
         rescheduleAll(c);
+        showSnoozed(c, id, sn.optLong(id, 0));
+        AriesPlugin.fireSnoozes();
+    }
+
+    /** Quita una alarma pospuesta (ya no vuelve a sonar) */
+    static void unsnooze(Context c, String id) {
+        JSONObject sn = snoozes(c);
+        sn.remove(id);
+        prefs(c).edit().putString("snoozes", sn.toString()).apply();
+        rescheduleAll(c);
+        clearSnoozed(c, id);
+        AriesPlugin.fireSnoozes();
+    }
+
+    /** Aviso fijo "pospuesta hasta…" con botón para cancelarla */
+    static void showSnoozed(Context c, String id, long t) {
+        if (Build.VERSION.SDK_INT >= 26) {
+            NotificationManager nm = (NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm.getNotificationChannel(CH_SNOOZE) == null) {
+                NotificationChannel ch = new NotificationChannel(CH_SNOOZE, "Alarmas pospuestas", NotificationManager.IMPORTANCE_LOW);
+                ch.setDescription("Muestra qué alarmas pospusiste y a qué hora vuelven a sonar");
+                nm.createNotificationChannel(ch);
+            }
+        }
+        JSONObject a = find(c, id);
+        String label = a != null && !a.optString("label", "").isEmpty() ? a.optString("label") : "Alarma";
+        java.text.DateFormat f = android.text.format.DateFormat.getTimeFormat(c);
+        PendingIntent cancel = PendingIntent.getBroadcast(c, ("unsnooze:" + id).hashCode(), new Intent(c, AlarmReceiver.class).setAction(ACTION_UNSNOOZE).putExtra("id", id), PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+        Intent open = new Intent(c, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent po = PendingIntent.getActivity(c, 11, open, PendingIntent.FLAG_IMMUTABLE);
+        Notification n = new NotificationCompat.Builder(c, CH_SNOOZE)
+            .setSmallIcon(R.drawable.ic_stat_notify)
+            .setContentTitle(label + " · pospuesta")
+            .setContentText("Vuelve a sonar a las " + f.format(new java.util.Date(t)))
+            .setWhen(t).setShowWhen(true).setUsesChronometer(true).setChronometerCountDown(true)
+            .setOngoing(true).setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setContentIntent(po)
+            .addAction(0, "Cancelar", cancel)
+            .setTimeoutAfter(Math.max(1000, t - System.currentTimeMillis()))
+            .build();
+        ((NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).notify(NID_SNOOZE_BASE + (id.hashCode() & 0x0fff), n);
+    }
+
+    static void clearSnoozed(Context c, String id) {
+        ((NotificationManager) c.getSystemService(Context.NOTIFICATION_SERVICE)).cancel(NID_SNOOZE_BASE + (id.hashCode() & 0x0fff));
     }
 
     static boolean canExact(Context c) {

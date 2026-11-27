@@ -3,7 +3,7 @@ import { state, commit, upsert, remove, find } from '../store.js';
 import { icon } from '../icons.js';
 import { esc, formModal, toast, emptyState, uid } from '../util.js';
 import { sound } from '../sound.js';
-import { nextTime, oneOffDate, repeatText, untilText, ringsHere, thisDevice, showRinging, BUILTIN_TONES, DEFAULT_TONE, myTones, toneName, previewTone, stopPreview } from '../alarms.js';
+import { snoozedList, cancelSnooze, onSnoozes, nextTime, oneOffDate, repeatText, untilText, ringsHere, thisDevice, showRinging, BUILTIN_TONES, DEFAULT_TONE, myTones, toneName, previewTone, stopPreview } from '../alarms.js';
 import { alarmMessage, alarmKind, KINDS } from '../alarmtalk.js';
 import { saveAttachment } from '../platform.js';
 import { isAndroid } from '../platform.js';
@@ -19,6 +19,7 @@ export function render(el) {
   el.innerHTML = `
     <div class="page-head"><div><h1>Alarmas</h1><p class="muted">${next ? `La próxima en este dispositivo suena ${untilText(next.t)} (${esc(next.a.label || hm12(next.a.time))}).` : 'Para levantarte o para lo que sea.'}</p></div>
       <button class="btn primary" data-anew>${icon('plus', 16)} Nueva alarma</button></div>
+    <div data-snoozed></div>
     ${isAndroid ? '<div data-aperm></div>' : '<div class="card small muted" style="margin-bottom:14px">En el PC, las alarmas suenan si la app está abierta o minimizada en la bandeja (no si el PC está apagado o suspendido).</div>'}
     ${list.length ? `<div class="grid g2">${list.map((a) => {
       const on = a.enabled !== false;
@@ -36,10 +37,17 @@ export function render(el) {
 `;
 
   if (isAndroid) paintPerms(el);
+  paintSnoozed(el);
+  // Se actualiza solo: al posponer desde la notificación y cada 30 s (cuenta regresiva)
+  offSnz?.(); clearInterval(snzTimer);
+  offSnz = onSnoozes(() => { if (el.querySelector('[data-snoozed]')?.isConnected) paintSnoozed(el); });
+  snzTimer = setInterval(() => { if (el.querySelector('[data-snoozed]')?.isConnected) paintSnoozed(el); else { clearInterval(snzTimer); offSnz?.(); } }, 30000);
   el.onclick = async (e) => {
     const tg = e.target.closest('[data-atoggle]');
     if (tg) { const a = find('alarms', tg.dataset.atoggle); if (a) { a.enabled = tg.checked; if (a.enabled && !(a.days || []).length && !nextTime(a)) a.date = oneOffDate(a.time); commit(); sound(a.enabled ? 'complete' : 'tap'); } return; }
     if (e.target.closest('[data-stop]')) return;
+    const un = e.target.closest('[data-unsnooze]');
+    if (un) { await cancelSnooze(un.dataset.unsnooze); sound('tap'); paintSnoozed(el); toast('Listo, ya no vuelve a sonar'); return; }
     const tr = e.target.closest('[data-atry]');
     if (tr) { const a = find('alarms', tr.dataset.atry); if (a) { if (AriesNative) AriesNative.testAlarm({ id: a.id }).catch(() => {}); else showRinging(a, {}); } return; }
     const t = e.target.closest('[data-anew],[data-alarm],[data-aperm-go]');
@@ -49,6 +57,17 @@ export function render(el) {
     else if (d.alarm) await alarmDialog(find('alarms', d.alarm));
     else if (d.apermGo) openNativeSetting(d.apermGo);
   };
+}
+
+let offSnz = null, snzTimer = 0;
+async function paintSnoozed(el) {
+  const box = el.querySelector('[data-snoozed]');
+  const list = await snoozedList();
+  if (!box?.isConnected) return;
+  box.innerHTML = list.length ? `<div class="card" style="margin-bottom:14px;border-color:var(--accent)">
+    <div style="font-weight:600;display:flex;gap:6px;align-items:center">${icon('zzz', 16)} Pospuestas</div>
+    ${list.map(({ a, at }) => `<div class="split" style="margin-top:10px"><div><div style="font-weight:500">${esc(a.label || 'Alarma')}</div><div class="small muted">Vuelve a sonar a las ${esc(new Date(at).toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' }))} (${esc(untilText(at))})</div></div><button class="btn ghost sm" data-unsnooze="${esc(a.id)}">Cancelar</button></div>`).join('')}
+  </div>` : '';
 }
 
 async function paintPerms(el) {

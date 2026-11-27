@@ -111,7 +111,26 @@ function retireOld() {
 
 // ---------- Sonando ----------
 let ringing = null; // { a, el, stopSound, opts }
-const snoozes = {}; // PC: id → hora a la que vuelve a sonar
+// PC: id → hora a la que vuelve a sonar (se guarda por si cierras la app)
+const SNZ = 'organizador-pospuestas';
+const snoozes = (() => { try { return JSON.parse(localStorage.getItem(SNZ) || '{}'); } catch { return {}; } })();
+const saveSnoozes = () => { try { localStorage.setItem(SNZ, JSON.stringify(snoozes)); } catch { /* */ } snoozeListeners.forEach((fn) => fn()); };
+const snoozeListeners = new Set();
+export const onSnoozes = (fn) => { snoozeListeners.add(fn); return () => snoozeListeners.delete(fn); };
+
+/** Alarmas pospuestas en este dispositivo: [{ a, at }] */
+export async function snoozedList() {
+  let map = snoozes;
+  if (AriesNative) { try { map = (await AriesNative.getSnoozes()).snoozes || {}; } catch { map = {}; } }
+  const now = Date.now();
+  return Object.entries(map).filter(([, t]) => t > now).map(([id, t]) => ({ a: find('alarms', id) || { id, label: 'Alarma', time: '' }, at: t })).sort((x, y) => x.at - y.at);
+}
+
+export async function cancelSnooze(id) {
+  if (AriesNative) { await AriesNative.cancelSnooze({ id }).catch(() => {}); return; }
+  delete snoozes[id];
+  saveSnoozes();
+}
 
 async function toneSrc(t) {
   if (t?.kind === 'file') { const f = state.files.find((x) => x.id === t.fileId); const u = f ? await attachmentUrl(f) : ''; if (u) return u; }
@@ -193,7 +212,7 @@ function dismiss() {
   AriesNative?.stopAlarm({ id: r.a.id }).catch(() => {});
   r.stopSound();
   r.stopSound = () => {};
-  delete snoozes[r.a.id];
+  if (snoozes[r.a.id]) { delete snoozes[r.a.id]; saveSnoozes(); }
   r.dismissed = true;
   if (!(r.a.days || []).length) { const a = find('alarms', r.a.id); if (a) { a.enabled = false; commit(); } }
   const text = alarmMessage(r.a);
@@ -210,7 +229,7 @@ function snooze() {
   const r = ringing;
   const min = Number(r.a.snooze) || 10;
   if (AriesNative) AriesNative.snoozeAlarm({ id: r.a.id, min }).catch(() => {});
-  else snoozes[r.a.id] = Date.now() + min * 60000;
+  else { snoozes[r.a.id] = Date.now() + min * 60000; saveSnoozes(); }
   closeRinging(true);
 }
 
@@ -222,6 +241,7 @@ export function startAlarms() {
   retireOld();
   if (AriesNative) {
     AriesNative.addListener('alarm', (d) => { const a = find('alarms', d.id) || { id: d.id, label: 'Alarma', time: '' }; showRinging(a, { launched: d.launched, locked: d.locked }); });
+    AriesNative.addListener('snoozes', () => snoozeListeners.forEach((fn) => fn()));
     AriesNative.addListener('alarmStopped', (d) => { if (ringing?.a.id === d.id && !ringing.dismissed) closeRinging(true); });
     syncNative(true);
     onChange(() => syncNative());
@@ -236,7 +256,7 @@ export function startAlarms() {
       const t = nextTime(a, last - 1);
       if (t && t <= now && now - t < 5 * 60000) showRinging(a);
     }
-    for (const [id, t] of Object.entries(snoozes)) if (t <= now) { delete snoozes[id]; showRinging(find('alarms', id)); }
+    for (const [id, t] of Object.entries(snoozes)) if (t <= now) { delete snoozes[id]; saveSnoozes(); if (now - t < 5 * 60000) showRinging(find('alarms', id)); }
     last = now;
     retireOld();
   }, 10000);

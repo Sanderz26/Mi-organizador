@@ -170,6 +170,24 @@ public class AriesPlugin extends Plugin {
         call.resolve(o);
     }
 
+    static void fireSnoozes() { AriesPlugin p = self; if (p != null) p.notifyListeners("snoozes", new JSObject()); }
+
+    /** Alarmas pospuestas: id → hora (ms) a la que vuelven a sonar */
+    @PluginMethod
+    public void getSnoozes(PluginCall call) {
+        JSObject o = new JSObject();
+        org.json.JSONObject sn = AlarmScheduler.snoozes(getContext());
+        java.util.Iterator<String> it = sn.keys();
+        long now = System.currentTimeMillis();
+        while (it.hasNext()) { String id = it.next(); long t = sn.optLong(id, 0); if (t > now) o.put(id, t); }
+        JSObject r = new JSObject();
+        r.put("snoozes", o);
+        call.resolve(r);
+    }
+
+    @PluginMethod
+    public void cancelSnooze(PluginCall call) { AlarmScheduler.unsnooze(getContext(), call.getString("id", "")); call.resolve(); }
+
     /** Tonos de alarma que trae Android */
     @PluginMethod
     public void listTones(PluginCall call) {
