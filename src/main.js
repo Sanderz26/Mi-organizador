@@ -7,6 +7,8 @@ import { timerElapsed, timerLabel, togglePause, stopTimer } from './timer.js';
 import { startReminderLoop, refreshReminders } from './notify.js';
 import { startPrinterLoop } from './printer.js';
 import { openFace, faceUnlocked, faceOpen, closeFace } from './face.js';
+import * as alarmsView from './views/alarmsview.js';
+import { startAlarms } from './alarms.js';
 import { syncHolidaysOnline } from './holidays.js';
 import { onAppPause, onBackButton, exitApp } from './platform.js';
 import { startUpdates } from './updates.js';
@@ -32,6 +34,7 @@ const ROUTES = {
   inicio: { label: 'Inicio', icon: 'home', view: home },
   asistente: { label: 'Asistente', icon: 'sparkles', view: assistant },
   calendario: { label: 'Calendario', icon: 'calendar', view: calendar },
+  alarmas: { label: 'Alarmas', icon: 'alarm', view: alarmsView },
   tareas: { label: 'Tareas', icon: 'checklist', view: tasks },
   estudio: { label: 'Estudio', icon: 'book', view: study },
   gimnasio: { label: 'Gimnasio', icon: 'barbell', view: gym },
@@ -41,7 +44,7 @@ const ROUTES = {
   notas: { label: 'Notas', icon: 'notes', view: notes },
   ajustes: { label: 'Ajustes', icon: 'settings', view: settings },
 };
-const SIDE = ['inicio', 'asistente', 'calendario', 'tareas', 'estudio', 'gimnasio', 'dieta', 'negocio', 'progreso', 'notas'];
+const SIDE = ['inicio', 'asistente', 'calendario', 'alarmas', 'tareas', 'estudio', 'gimnasio', 'dieta', 'negocio', 'progreso', 'notas'];
 const BOTTOM = ['inicio', 'calendario', 'tareas', 'estudio'];
 
 const app = document.getElementById('app');
@@ -168,6 +171,7 @@ async function boot() {
   startReminderLoop();
   startUpdates();
   startPrinterLoop();
+  startAlarms();
   startSync();
   if (wakePrefs().on) startWake(onAries);
   onWakeStatus(drawWakeChip);

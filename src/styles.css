@@ -352,3 +352,21 @@ body.face-on { overflow: hidden; }
 .face-ov[data-state="listening"] .face-mic { box-shadow: 0 0 0 6px var(--accent-soft); }
 .face-ov[data-state="sleep"] .face-svg { filter: drop-shadow(0 10px 20px rgba(19, 71, 91, .1)) saturate(.7); }
 @media (prefers-reduced-motion: reduce) { .face-wrap { transform: none; } }
+
+/* ---------- Alarmas ---------- */
+.alarm-big { font-size: 34px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+.alarm-card.off .alarm-big, .alarm-card.off > div:first-child div { color: var(--ink-3, var(--ink-2)); }
+.switch { position: relative; display: inline-block; width: 46px; height: 26px; flex: none; }
+.switch input { opacity: 0; width: 0; height: 0; }
+.switch span { position: absolute; inset: 0; border-radius: 99px; background: var(--line, #d0d7de); transition: background .18s; cursor: pointer; }
+.switch span::before { content: ''; position: absolute; width: 20px; height: 20px; left: 3px; top: 3px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,.25); transition: transform .18s; }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::before { transform: translateX(20px); }
+.alarm-ov .face-mid { gap: 10px; }
+.alarm-ic { color: var(--accent); animation: alarmShake 1.2s ease-in-out infinite; }
+@keyframes alarmShake { 0%, 60%, 100% { transform: rotate(0); } 10%, 30%, 50% { transform: rotate(-12deg); } 20%, 40% { transform: rotate(12deg); } }
+.alarm-time { font-size: clamp(56px, 14vw, 110px); font-weight: 600; letter-spacing: -.03em; line-height: 1; }
+.alarm-label { font-size: 20px; color: var(--ink-2); }
+.alarm-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; padding-top: 10px; }
+.btn.lg { padding: 14px 26px; font-size: 17px; border-radius: 14px; }
+@media (prefers-reduced-motion: reduce) { .alarm-ic { animation: none; } }

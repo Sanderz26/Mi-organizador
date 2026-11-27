@@ -13,6 +13,8 @@ public class MainActivity extends BridgeActivity {
     public static volatile boolean visible = false;
     /** Se abrió por "Aries" antes de que la app web estuviera lista */
     public static volatile boolean launchedByAries = false;
+    /** Alarma que abrió la app antes de que la app web estuviera lista */
+    public static volatile String pendingAlarm = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,7 +34,16 @@ public class MainActivity extends BridgeActivity {
     @Override public void onStop() { super.onStop(); AriesService.appLeft(); }
 
     private void handleAries(Intent i) {
-        if (i == null || !i.getBooleanExtra("aries", false)) return;
+        if (i == null) return;
+        String alarm = i.getStringExtra("alarm");
+        if (alarm != null) {
+            i.removeExtra("alarm");
+            showOverLock(true);
+            pendingAlarm = alarm;
+            AriesPlugin.fireAlarm(alarm, true);
+            return;
+        }
+        if (!i.getBooleanExtra("aries", false)) return;
         i.removeExtra("aries");
         showOverLock(true);
         ((NotificationManager) getSystemService(NOTIFICATION_SERVICE)).cancel(AriesService.NID_WAKE);

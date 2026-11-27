@@ -45,6 +45,7 @@ public class AriesPlugin extends Plugin {
             }
         };
         if (MainActivity.launchedByAries) fireWake(true);
+        if (MainActivity.pendingAlarm != null) fireAlarm(MainActivity.pendingAlarm, true);
     }
 
     /** launched: la app se abrió desde segundo plano por "Aries" */
@@ -57,6 +58,51 @@ public class AriesPlugin extends Plugin {
         p.notifyListeners("wake", o, true);
         if (launched) MainActivity.launchedByAries = false;
     }
+
+    static void fireAlarm(String id, boolean launched) {
+        AriesPlugin p = self;
+        if (p == null) { MainActivity.pendingAlarm = id; return; }
+        JSObject o = new JSObject();
+        o.put("id", id);
+        o.put("launched", launched);
+        o.put("locked", p.isLocked());
+        p.notifyListeners("alarm", o, true);
+        if (id.equals(MainActivity.pendingAlarm)) MainActivity.pendingAlarm = null;
+    }
+
+    /** Se apagó o pospuso desde la notificación: la app cierra su pantalla de alarma */
+    static void fireAlarmStopped(String id) {
+        AriesPlugin p = self;
+        if (p == null) return;
+        JSObject o = new JSObject();
+        o.put("id", id);
+        p.notifyListeners("alarmStopped", o);
+    }
+
+    // ---------- Alarmas ----------
+    @PluginMethod
+    public void syncAlarms(PluginCall call) {
+        com.getcapacitor.JSArray arr = call.getArray("alarms", new com.getcapacitor.JSArray());
+        AlarmScheduler.save(getContext(), arr.toString());
+        JSObject o = new JSObject();
+        o.put("exact", AlarmScheduler.canExact(getContext()));
+        call.resolve(o);
+    }
+
+    @PluginMethod
+    public void stopAlarm(PluginCall call) { AlarmScheduler.stop(getContext(), call.getString("id", "")); call.resolve(); }
+
+    @PluginMethod
+    public void snoozeAlarm(PluginCall call) { AlarmScheduler.snooze(getContext(), call.getString("id", ""), call.getInt("min", 0)); call.resolve(); }
+
+    @PluginMethod
+    public void askNotifications(PluginCall call) {
+        if (Build.VERSION.SDK_INT >= 33 && getPermissionState("notifications") != PermissionState.GRANTED) { requestPermissionForAlias("notifications", call, "afterNotif"); return; }
+        call.resolve();
+    }
+
+    @PermissionCallback
+    private void afterNotif(PluginCall call) { call.resolve(); }
 
     private boolean isLocked() {
         KeyguardManager km = (KeyguardManager) getContext().getSystemService(Context.KEYGUARD_SERVICE);
@@ -143,6 +189,7 @@ public class AriesPlugin extends Plugin {
         o.put("overlay", Build.VERSION.SDK_INT < 23 || Settings.canDrawOverlays(c));
         PowerManager pm = (PowerManager) c.getSystemService(Context.POWER_SERVICE);
         o.put("battery", Build.VERSION.SDK_INT < 23 || pm.isIgnoringBatteryOptimizations(c.getPackageName()));
+        o.put("exactAlarm", AlarmScheduler.canExact(c));
         call.resolve(o);
     }
 
@@ -161,6 +208,9 @@ public class AriesPlugin extends Plugin {
                 break;
             case "battery":
                 i = new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, pkg);
+                break;
+            case "exactAlarm":
+                i = Build.VERSION.SDK_INT >= 31 ? new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM, pkg) : new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg);
                 break;
             case "notifications":
                 i = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).putExtra(Settings.EXTRA_APP_PACKAGE, c.getPackageName());

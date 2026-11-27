@@ -84,7 +84,17 @@ async function startMic() {
   try { await ctx.resume(); } catch { /* */ }
   rec = new model.KaldiRecognizer(ctx.sampleRate, JSON.stringify(['aries', '[unk]']));
   rec.setWords(true);
+  // Detección rápida con resultados parciales (como en la tableta)
+  let partialHits = 0;
+  rec.on('partialresult', (m) => {
+    const sens = wakePrefs().sens;
+    if (sens >= 0.9) return;
+    const has = ` ${m?.result?.partial || ''} `.includes(' aries ');
+    partialHits = has ? partialHits + 1 : 0;
+    if (partialHits >= (sens <= 0.7 ? 1 : 2) && Date.now() - lastWake > 3000) { partialHits = 0; lastWake = Date.now(); onWake?.(); }
+  });
   rec.on('result', (m) => {
+    partialHits = 0;
     const words = m?.result?.result || [];
     const hit = words.find((w) => w.word === 'aries' && (w.conf ?? 1) >= wakePrefs().sens);
     if (hit && Date.now() - lastWake > 3000) { lastWake = Date.now(); onWake?.(); }
@@ -139,11 +149,12 @@ export async function startWake(handler) {
 }
 export function stopWake() { wantRunning = false; if (AriesNative) { AriesNative.stop().catch(() => {}); set({ state: 'off' }); return; } stopMic('off'); }
 /** Libera el micrófono mientras se dicta o se habla */
-export async function pauseWake() {
+export async function pauseWake({ fresh = false } = {}) {
   if (AriesNative) {
     if (!wakePrefs().on) return;
     await AriesNative.hold().catch(() => {});
-    await new Promise((r) => setTimeout(r, 450)); // que Android suelte el micrófono
+    // Justo después de oír "Aries" el servicio ya soltó el micrófono: no hay que esperar
+    if (!fresh) await new Promise((r) => setTimeout(r, 450));
     return;
   }
   if (!stream) return;
