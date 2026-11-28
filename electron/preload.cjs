@@ -36,4 +36,5 @@ contextBridge.exposeInMainWorld('native', {
   bubbleState: (s) => ipcRenderer.send('bubble:state', s),
   bubbleLevel: (l) => ipcRenderer.send('bubble:level', l),
   onBubble: (cb) => ipcRenderer.on('bubble', (_e, d) => cb(d)),
+  onSystemResume: (cb) => ipcRenderer.on('system-resume', () => cb()),
 });

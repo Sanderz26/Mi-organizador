@@ -92,7 +92,7 @@ async function startMic() {
     if (sens >= 0.9) return;
     const has = ` ${m?.result?.partial || ''} `.includes(' aries ');
     partialHits = has ? partialHits + 1 : 0;
-    if (partialHits >= (sens <= 0.7 ? 1 : 2) && Date.now() - lastWake > 3000) { partialHits = 0; lastWake = Date.now(); onWake?.(); }
+    if (partialHits >= (sens <= 0.85 ? 1 : 2) && Date.now() - lastWake > 3000) { partialHits = 0; lastWake = Date.now(); onWake?.(); }
   });
   rec.on('result', (m) => {
     partialHits = 0;
@@ -123,13 +123,14 @@ async function restartMic(why) {
 // Vigilante (PC): revisa cada 8 s que Aries siga escuchando de verdad
 setInterval(() => {
   if (AriesNative || !wantRunning || !model || restarting) return;
-  if (held) { if (Date.now() - heldAt > 120000) { held = false; resumeWake(); } return; } // una pausa olvidada
+  if (held) { if (Date.now() - heldAt > 60000) { held = false; resumeWake(); } return; } // una pausa olvidada
   if (isAndroid && document.visibilityState !== 'visible') return;
   if (!stream) { startMic().catch((e) => set({ state: 'error', message: e.message })); return; }
   if (ctx?.state === 'suspended') ctx.resume().catch(() => {});
   const dead = stream.getAudioTracks().every((t) => t.readyState === 'ended') || Date.now() - lastAudio > 6000;
   if (dead) restartMic('sin audio');
 }, 8000);
+window.native?.onSystemResume?.(() => { if (!AriesNative && wantRunning) setTimeout(() => restartMic('volvió de suspensión'), 1500); });
 navigator.mediaDevices?.addEventListener?.('devicechange', () => { if (stream && !held) setTimeout(() => restartMic('cambio de micrófono'), 800); });
 
 function stopMic(next = 'paused') {

@@ -73,7 +73,7 @@ export function openFace(o = {}) {
       <div class="face-said" data-fsaid></div>
       <div class="face-reply" data-freply></div>
     </div>
-    <div class="face-bottom"><button class="btn primary face-mic" data-fmic aria-label="Hablar">${icon('microphone', 26)}</button></div>`;
+    <div class="face-bottom"><button class="btn ghost face-side" data-fclose>${icon('x', 18)} Cerrar</button><button class="btn primary face-mic" data-fmic aria-label="Hablar">${icon('microphone', 26)}</button><span class="face-side"></span></div>`;
   document.body.appendChild(root);
   document.body.classList.add('face-on');
   root.addEventListener('click', (e) => {
