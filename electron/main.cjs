@@ -231,6 +231,11 @@ ipcMain.handle('update:install', () => { quitting = true; autoUpdater?.quitAndIn
 
 app.on('second-instance', showWin);
 app.whenReady().then(() => {
+  // Al volver de suspensión o desbloquear Windows, Aries vuelve a abrir el micrófono
+  try {
+    const { powerMonitor } = require('electron');
+    for (const ev of ['resume', 'unlock-screen']) powerMonitor.on(ev, () => win?.webContents.send('system-resume'));
+  } catch { /* */ }
   // Permite el micrófono para hablarle al asistente
   const { session } = require('electron');
   session.defaultSession.setPermissionRequestHandler((_wc, permission, cb) => cb(['media', 'notifications', 'clipboard-sanitized-write'].includes(permission)));
@@ -327,16 +332,15 @@ function ensureBubble() {
   if (bubbleWin && !bubbleWin.isDestroyed()) return bubbleWin;
   const { screen } = require('electron');
   const wa = screen.getPrimaryDisplay().workArea;
-  const W = 380, H = 170;
+  const W = 120, H = 120;
   bubbleWin = new BrowserWindow({
     width: W, height: H, x: wa.x + wa.width - W - 12, y: wa.y + wa.height - H - 12,
     frame: false, transparent: true, resizable: false, movable: true, minimizable: false, maximizable: false,
-    alwaysOnTop: true, skipTaskbar: true, focusable: false, hasShadow: false, show: false,
+    alwaysOnTop: true, skipTaskbar: true, focusable: true, hasShadow: false, show: false,
     webPreferences: { preload: path.join(__dirname, 'bubble-preload.cjs'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
   });
   bubbleWin.setAlwaysOnTop(true, 'screen-saver');
   bubbleWin.setVisibleOnAllWorkspaces(true);
-  bubbleWin.setIgnoreMouseEvents(true, { forward: true });
   bubbleWin.loadFile(path.join(__dirname, 'bubble.html'));
   bubbleWin.on('closed', () => { bubbleWin = null; });
   return bubbleWin;
@@ -345,7 +349,7 @@ ipcMain.handle('bubble:show', async () => {
   const b = ensureBubble();
   if (b.webContents.isLoading()) await new Promise((r) => b.webContents.once('did-finish-load', r));
   b.webContents.send('state', { state: 'listening', text: '' });
-  b.showInactive();
+  b.showInactive(); // aparece sin quitarle el foco a lo que estás usando
   return true;
 });
 ipcMain.on('bubble:state', (_e, s) => { if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.webContents.send('state', s); });
@@ -353,7 +357,36 @@ ipcMain.on('bubble:level', (_e, l) => { if (bubbleWin && !bubbleWin.isDestroyed(
 ipcMain.handle('bubble:hide', () => { if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.hide(); return true; });
 ipcMain.on('bubble:close', () => { bubbleWin?.hide(); win?.webContents.send('bubble', { kind: 'closed' }); });
 ipcMain.on('bubble:expand', () => { bubbleWin?.hide(); showWin(); win?.webContents.send('bubble', { kind: 'expand' }); });
-ipcMain.on('bubble:move', (_e, dx, dy) => { if (!bubbleWin) return; const [x, y] = bubbleWin.getPosition(); bubbleWin.setPosition(Math.round(x + dx), Math.round(y + dy)); });
-ipcMain.on('bubble:mouse', (_e, ignore) => { bubbleWin?.setIgnoreMouseEvents(!!ignore, { forward: true }); });
+// La ventana crece hacia la izquierda y hacia arriba (la esquina de abajo a la derecha queda fija)
+ipcMain.on('bubble:size', (_e, w, h) => {
+  if (!bubbleWin || bubbleWin.isDestroyed()) return;
+  const b = bubbleWin.getBounds();
+  const right = b.x + b.width, bottom = b.y + b.height;
+  w = Math.max(60, Math.min(520, Math.round(w))); h = Math.max(60, Math.min(260, Math.round(h)));
+  if (w !== b.width || h !== b.height) bubbleWin.setBounds({ x: right - w, y: bottom - h, width: w, height: h });
+});
+// Arrastrar: la ventana sigue al puntero; si casi no se movió, es un clic (abre la app)
+let drag = null;
+ipcMain.on('bubble:dragStart', () => {
+  if (!bubbleWin) return;
+  const { screen } = require('electron');
+  const c0 = screen.getCursorScreenPoint(), b0 = bubbleWin.getBounds();
+  clearInterval(drag?.timer);
+  const t0 = Date.now();
+  drag = { c0, b0, moved: false, timer: setInterval(() => {
+    if (!bubbleWin || bubbleWin.isDestroyed() || Date.now() - t0 > 20000) { clearInterval(drag?.timer); drag = null; return; }
+    const c = screen.getCursorScreenPoint();
+    const dx = c.x - c0.x, dy = c.y - c0.y;
+    if (Math.abs(dx) + Math.abs(dy) > 5) drag.moved = true;
+    if (drag.moved) bubbleWin.setBounds({ x: b0.x + dx, y: b0.y + dy, width: b0.width, height: b0.height });
+  }, 16) };
+});
+ipcMain.on('bubble:dragEnd', () => {
+  if (!drag) return;
+  clearInterval(drag.timer);
+  const wasClick = !drag.moved;
+  drag = null;
+  if (wasClick) { bubbleWin?.hide(); showWin(); win?.webContents.send('bubble', { kind: 'expand' }); }
+});
 // ¿La ventana principal está al frente? (si no, Aries usa la carita chiquita)
 ipcMain.handle('window:focused', () => !!win && win.isVisible() && !win.isMinimized() && win.isFocused());

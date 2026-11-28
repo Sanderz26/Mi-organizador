@@ -2,12 +2,13 @@
 <html lang="es"><head><meta charset="utf-8"><title>Aries</title>
 <style>
   html,body{margin:0;background:transparent;overflow:hidden;font-family:"Segoe UI",system-ui,sans-serif;user-select:none}
-  .wrap{position:fixed;right:6px;bottom:6px;display:flex;align-items:center;gap:8px}
+  .wrap{position:absolute;right:8px;bottom:8px;display:flex;align-items:center;gap:8px}
   .cap{max-width:250px;background:#fff;color:#13232b;border:1px solid #d9e4ea;border-radius:16px;padding:10px 14px;font-size:14px;line-height:1.35;box-shadow:0 6px 18px rgba(19,71,91,.18);display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
   .cap:empty{display:none}
-  .face{position:relative;width:84px;height:84px;cursor:pointer;filter:drop-shadow(0 8px 14px rgba(19,71,91,.25))}
-  .x{position:absolute;top:-4px;left:-4px;width:22px;height:22px;border-radius:50%;background:rgba(19,35,43,.6);color:#fff;border:0;font-size:14px;line-height:22px;text-align:center;cursor:pointer;padding:0}
-  .x:hover{background:rgba(19,35,43,.85)}
+  .face{position:relative;width:84px;height:84px;margin:10px 0 0 10px;cursor:grab;filter:drop-shadow(0 6px 10px rgba(19,71,91,.25))}
+  .face:active{cursor:grabbing}
+  .x{position:absolute;top:-10px;left:-10px;width:28px;height:28px;border-radius:50%;background:rgba(19,35,43,.8);color:#fff;border:2px solid #fff;font-size:17px;line-height:22px;text-align:center;cursor:pointer;padding:0;z-index:2}
+  .x:hover{background:#13232b}
 </style></head>
 <body>
 <div class="wrap" id="wrap">
@@ -32,22 +33,15 @@
   const $ = (id) => document.getElementById(id);
   B.onState(({ state, text }) => { if (state) st = state; if (text !== undefined && text !== null) $('cap').textContent = text; });
   B.onLevel((l) => { level = Math.max(0, Math.min(1, l)); });
-  // Clics: solo sobre la carita y el texto (lo demás de la ventana deja pasar el mouse)
-  for (const el of [$('face'), $('cap')]) {
-    el.addEventListener('mouseenter', () => B.mouse(false));
-    el.addEventListener('mouseleave', () => B.mouse(true));
-  }
+  // La ventana mide justo lo que se ve (sin zonas invisibles que tapen otras apps)
+  const fit = () => { const w = $('wrap'); B.size(Math.ceil(w.offsetWidth + 16), Math.ceil(w.offsetHeight + 16)); };
+  new ResizeObserver(fit).observe($('wrap'));
+  fit();
+  $('x').addEventListener('mousedown', (e) => e.stopPropagation());
   $('x').addEventListener('click', (e) => { e.stopPropagation(); B.close(); });
-  // Arrastrar para mover; tocar para abrir la app
-  let down = null, moved = false;
-  $('face').addEventListener('mousedown', (e) => { if (e.target.id === 'x') return; down = { x: e.screenX, y: e.screenY }; moved = false; });
-  window.addEventListener('mousemove', (e) => {
-    if (!down) return;
-    const dx = e.screenX - down.x, dy = e.screenY - down.y;
-    if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
-    if (moved) { B.move(dx, dy); down = { x: e.screenX, y: e.screenY }; }
-  });
-  window.addEventListener('mouseup', () => { if (down && !moved) B.expand(); down = null; });
+  // Arrastrar con el mouse (la ventana sigue al puntero); un clic sin mover abre la app
+  $('face').addEventListener('mousedown', (e) => { if (e.button !== 0 || e.target.id === 'x') return; e.preventDefault(); B.dragStart(); });
+  window.addEventListener('mouseup', () => B.dragEnd());
   function frame(t) {
     const listening = st === 'listening', thinking = st === 'thinking' || st === 'transcribing', speaking = st === 'speaking';
     const sp = speaking ? 0.15 + Math.abs(Math.sin(t / 1000 * 11)) * (0.55 + 0.45 * Math.sin(t / 1000 * 2.3)) * 0.75 : 0;

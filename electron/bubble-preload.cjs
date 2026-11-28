@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld('bubble', {
   onLevel: (cb) => ipcRenderer.on('level', (_e, l) => cb(l)),
   close: () => ipcRenderer.send('bubble:close'),
   expand: () => ipcRenderer.send('bubble:expand'),
-  move: (dx, dy) => ipcRenderer.send('bubble:move', dx, dy),
-  mouse: (ignore) => ipcRenderer.send('bubble:mouse', ignore),
+  size: (w, h) => ipcRenderer.send('bubble:size', w, h),
+  dragStart: () => ipcRenderer.send('bubble:dragStart'),
+  dragEnd: () => ipcRenderer.send('bubble:dragEnd'),
 });

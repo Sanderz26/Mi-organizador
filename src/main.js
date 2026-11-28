@@ -107,6 +107,7 @@ export async function onAries(o = {}) {
     return;
   }
   // Tableta en otra app: carita chiquita en una esquina; la conversación sigue aquí por detrás
+  // (el sonidito ya lo hizo Android al instante de oír "Aries")
   if (o.bubble) {
     setAudioSink({ play: (b64) => AriesNative.playAudio({ b64 }), stop: () => AriesNative.stopAudio().catch(() => {}) });
     openFace({ mini: true, onClose: () => { setAudioSink(null); resumeWake(); AriesNative?.bubbleHide().catch(() => {}); } });
@@ -114,7 +115,7 @@ export async function onAries(o = {}) {
     if (parseHash().route === 'asistente') render(); else go('asistente');
     return;
   }
-  sound('start');
+  if (!AriesNative || !('launched' in o)) sound('start'); // en la tableta ya sonó (nativo, sin demora)
   window.native?.showWindow?.();
   openFace({
     locked: !!o.locked,

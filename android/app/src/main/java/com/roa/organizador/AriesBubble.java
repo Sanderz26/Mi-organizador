@@ -72,21 +72,30 @@ public class AriesBubble {
         FrameLayout box = new FrameLayout(ctx);
         face = new FaceView(ctx);
         face.setElevation(dp(8));
-        box.addView(face, new FrameLayout.LayoutParams(dp(84), dp(84)));
+        FrameLayout.LayoutParams fp = new FrameLayout.LayoutParams(dp(84), dp(84));
+        fp.leftMargin = dp(10);
+        fp.topMargin = dp(10);
+        box.addView(face, fp);
         TextView close = new TextView(ctx);
         close.setText("×");
-        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
         close.setTextColor(Color.WHITE);
         close.setGravity(Gravity.CENTER);
+        close.setIncludeFontPadding(false);
         GradientDrawable cb = new GradientDrawable();
         cb.setShape(GradientDrawable.OVAL);
-        cb.setColor(Color.parseColor("#9913232b"));
+        cb.setColor(Color.parseColor("#cc13232b"));
+        cb.setStroke(dp(2), Color.WHITE);
         close.setBackground(cb);
-        close.setElevation(dp(10));
-        FrameLayout.LayoutParams xl = new FrameLayout.LayoutParams(dp(24), dp(24));
+        close.setClickable(true);
+        close.setContentDescription("Cerrar");
+        FrameLayout.LayoutParams xl = new FrameLayout.LayoutParams(dp(32), dp(32));
         xl.gravity = Gravity.TOP | Gravity.START;
         box.addView(close, xl);
-        box.setPadding(dp(4), dp(4), dp(4), dp(4));
+        close.setTranslationZ(dp(14)); // siempre encima de la cara (para que el toque le llegue)
+        box.setPadding(dp(2), dp(2), dp(6), dp(6));
+        box.setClipChildren(false);
+        box.setClipToPadding(false);
         root.addView(box);
 
         int type = Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
@@ -96,25 +105,46 @@ public class AriesBubble {
         lp.x = dp(16);
         lp.y = dp(96);
 
-        close.setOnClickListener(v -> { hide(); AriesPlugin.fireBubble("closed"); });
-        // Arrastrar para moverla; tocar para abrir la app
+        close.setOnClickListener(v -> closeByUser());
+        // Arrastrar con el dedo para moverla; tocar para abrir la app; mantener presionado para cerrarla
         face.setOnTouchListener(new View.OnTouchListener() {
-            float sx, sy; int ox, oy; boolean moved;
+            float sx, sy; int ox, oy; boolean moved, longDone;
+            final Runnable longPress = () -> { longDone = true; face.performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS); closeByUser(); };
             @Override public boolean onTouch(View v, MotionEvent e) {
                 switch (e.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN: sx = e.getRawX(); sy = e.getRawY(); ox = lp.x; oy = lp.y; moved = false; return true;
-                    case MotionEvent.ACTION_MOVE:
-                        float dx = e.getRawX() - sx, dy = e.getRawY() - sy;
-                        if (Math.abs(dx) + Math.abs(dy) > dp(8)) moved = true;
-                        if (moved) { lp.x = Math.max(0, ox - (int) dx); lp.y = Math.max(0, oy - (int) dy); try { wm.updateViewLayout(root, lp); } catch (Exception ignored) {} }
+                    case MotionEvent.ACTION_DOWN:
+                        sx = e.getRawX(); sy = e.getRawY(); ox = lp.x; oy = lp.y; moved = false; longDone = false;
+                        v.postDelayed(longPress, 700);
                         return true;
+                    case MotionEvent.ACTION_MOVE: {
+                        float dx = e.getRawX() - sx, dy = e.getRawY() - sy;
+                        if (!moved && Math.abs(dx) + Math.abs(dy) > dp(10)) { moved = true; v.removeCallbacks(longPress); }
+                        if (moved) {
+                            // gravedad abajo-derecha: x y y se cuentan desde la esquina inferior derecha
+                            lp.x = Math.max(0, ox - (int) dx);
+                            lp.y = Math.max(0, oy - (int) dy);
+                            try { wm.updateViewLayout(root, lp); } catch (Exception ignored) {}
+                        }
+                        return true;
+                    }
                     case MotionEvent.ACTION_UP:
-                        if (!moved) expand();
+                        v.removeCallbacks(longPress);
+                        if (!moved && !longDone) expand();
+                        return true;
+                    case MotionEvent.ACTION_CANCEL:
+                        v.removeCallbacks(longPress);
                         return true;
                 }
                 return false;
             }
         });
+    }
+
+    private void closeByUser() {
+        hide();
+        AriesPlugin.fireBubble("closed");
+        // Si la app no está para cerrar la conversación, Aries vuelve a escuchar solo
+        AriesService.hold(false);
     }
 
     /** Abre la app completa (con la conversación) */

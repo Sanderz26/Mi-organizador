@@ -77,6 +77,17 @@ public class AriesService extends Service implements RecognitionListener {
     private long lastWake = 0;
     private PowerManager.WakeLock cpuLock;
     private boolean loadingModel = false;
+    private android.media.SoundPool chime;
+    private int chimeId = 0;
+
+    /** Sonidito al instante de oír "Aries" (antes de que la app reaccione) */
+    private void loadChime() {
+        try {
+            chime = new android.media.SoundPool.Builder().setMaxStreams(1)
+                .setAudioAttributes(new android.media.AudioAttributes.Builder().setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_SONIFICATION).setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION).build()).build();
+            chimeId = chime.load(getAssets().openFd("public/sonidos/aries.wav"), 1);
+        } catch (Throwable e) { chime = null; }
+    }
 
     private final Runnable tick = new Runnable() {
         @Override public void run() { evaluate(); main.postDelayed(this, 60000); }
@@ -101,6 +112,7 @@ public class AriesService extends Service implements RecognitionListener {
         f.addAction(Intent.ACTION_POWER_DISCONNECTED);
         registerReceiver(power, f);
         main.postDelayed(tick, 60000);
+        loadChime();
     }
 
     @Override public int onStartCommand(Intent intent, int flags, int startId) {
@@ -124,6 +136,7 @@ public class AriesService extends Service implements RecognitionListener {
 
     @Override public void onDestroy() {
         main.removeCallbacksAndMessages(null);
+        try { if (chime != null) chime.release(); } catch (Throwable ignored) {}
         try { unregisterReceiver(power); } catch (Exception ignored) {}
         stopRec();
         if (model != null) { model.close(); model = null; }
@@ -303,7 +316,7 @@ public class AriesService extends Service implements RecognitionListener {
             if (sens >= 0.9f) return; // sensibilidad baja: solo con el resultado final (menos falsas alarmas)
             boolean has = (" " + p + " ").contains(" aries ");
             partialHits = has ? partialHits + 1 : 0;
-            if (partialHits >= (sens <= 0.7f ? 1 : 2)) { partialHits = 0; wake(); }
+            if (partialHits >= (sens <= 0.85f ? 1 : 2)) { partialHits = 0; wake(); }
         } catch (Exception ignored) {}
     }
     @Override public void onResult(String hypothesis) { partialHits = 0; check(hypothesis); }
@@ -327,6 +340,7 @@ public class AriesService extends Service implements RecognitionListener {
         long now = System.currentTimeMillis();
         if (now - lastWake < 3000) return;
         lastWake = now;
+        try { if (chime != null && chimeId != 0) chime.play(chimeId, 0.9f, 0.9f, 1, 0, 1f); } catch (Throwable ignored) {}
         hold(true); // suelta el micrófono para el dictado
         boolean visible = MainActivity.visible;
         Listener l = listener;
