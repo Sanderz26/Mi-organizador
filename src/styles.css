@@ -333,7 +333,7 @@ input[type=color] { width: 100%; height: 40px; border: 1px solid var(--line-2); 
 :root { --face-a: #e9f3f7; --face-b: #cfe4ec; --face-ink: #13475b; }
 :root[data-theme="dark"] { --face-a: #24414c; --face-b: #1a3039; --face-ink: #cfeaf4; }
 body.face-on { overflow: hidden; }
-.face-ov { position: fixed; inset: 0; z-index: 55; background: var(--bg); display: flex; flex-direction: column; padding: max(34px, env(safe-area-inset-top)) 18px max(22px, env(safe-area-inset-bottom)); animation: faceIn .22s ease-out; }
+.face-ov { position: fixed; inset: 0; z-index: 55; background: var(--bg); display: flex; flex-direction: column; padding: max(14px, env(safe-area-inset-top)) 18px max(18px, env(safe-area-inset-bottom)); animation: faceIn .22s ease-out; }
 .face-ov.closing { animation: faceOut .2s ease-in forwards; }
 @keyframes faceIn { from { opacity: 0; transform: scale(.98); } }
 @keyframes faceOut { to { opacity: 0; transform: scale(.98); } }
@@ -347,9 +347,7 @@ body.face-on { overflow: hidden; }
 .face-status { font-size: 15px; color: var(--ink-2); min-height: 22px; font-weight: 500; }
 .face-said { font-size: 15px; color: var(--ink-3, var(--ink-2)); max-width: 640px; min-height: 20px; font-style: italic; }
 .face-reply { font-size: clamp(17px, 2.4vw, 22px); line-height: 1.45; max-width: 720px; max-height: 30vh; overflow-y: auto; color: var(--ink); }
-.face-bottom { display: flex; justify-content: center; align-items: center; gap: 18px; padding-top: 10px; }
-.face-side { min-width: 110px; justify-content: center; }
-.face-top .btn.icon { width: 44px; height: 44px; }
+.face-bottom { display: flex; justify-content: center; padding-top: 10px; }
 .face-mic { width: 64px; height: 64px; border-radius: 50%; padding: 0; justify-content: center; }
 .face-ov[data-state="listening"] .face-mic { box-shadow: 0 0 0 6px var(--accent-soft); }
 .face-ov[data-state="sleep"] .face-svg { filter: drop-shadow(0 10px 20px rgba(19, 71, 91, .1)) saturate(.7); }

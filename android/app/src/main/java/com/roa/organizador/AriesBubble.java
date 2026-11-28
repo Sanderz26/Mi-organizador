@@ -72,30 +72,21 @@ public class AriesBubble {
         FrameLayout box = new FrameLayout(ctx);
         face = new FaceView(ctx);
         face.setElevation(dp(8));
-        FrameLayout.LayoutParams fp = new FrameLayout.LayoutParams(dp(84), dp(84));
-        fp.leftMargin = dp(10);
-        fp.topMargin = dp(10);
-        box.addView(face, fp);
+        box.addView(face, new FrameLayout.LayoutParams(dp(84), dp(84)));
         TextView close = new TextView(ctx);
         close.setText("×");
-        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 20);
+        close.setTextSize(TypedValue.COMPLEX_UNIT_SP, 15);
         close.setTextColor(Color.WHITE);
         close.setGravity(Gravity.CENTER);
-        close.setIncludeFontPadding(false);
         GradientDrawable cb = new GradientDrawable();
         cb.setShape(GradientDrawable.OVAL);
-        cb.setColor(Color.parseColor("#cc13232b"));
-        cb.setStroke(dp(2), Color.WHITE);
+        cb.setColor(Color.parseColor("#9913232b"));
         close.setBackground(cb);
-        close.setClickable(true);
-        close.setContentDescription("Cerrar");
-        FrameLayout.LayoutParams xl = new FrameLayout.LayoutParams(dp(32), dp(32));
+        close.setElevation(dp(10));
+        FrameLayout.LayoutParams xl = new FrameLayout.LayoutParams(dp(24), dp(24));
         xl.gravity = Gravity.TOP | Gravity.START;
         box.addView(close, xl);
-        close.setTranslationZ(dp(14)); // siempre encima de la cara (para que el toque le llegue)
-        box.setPadding(dp(2), dp(2), dp(6), dp(6));
-        box.setClipChildren(false);
-        box.setClipToPadding(false);
+        box.setPadding(dp(4), dp(4), dp(4), dp(4));
         root.addView(box);
 
         int type = Build.VERSION.SDK_INT >= 26 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY : WindowManager.LayoutParams.TYPE_PHONE;
