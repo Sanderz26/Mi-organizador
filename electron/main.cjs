@@ -320,3 +320,40 @@ ipcMain.handle('docs:open', async (_e, { path: p, folders }) => {
   if (!insideFolders(p, folders)) return 'Ese archivo no está en tus carpetas de documentos';
   return shell.openPath(p);
 });
+
+// ---------- Aries: carita chiquita flotante (cuando usas otra app) ----------
+let bubbleWin = null;
+function ensureBubble() {
+  if (bubbleWin && !bubbleWin.isDestroyed()) return bubbleWin;
+  const { screen } = require('electron');
+  const wa = screen.getPrimaryDisplay().workArea;
+  const W = 380, H = 170;
+  bubbleWin = new BrowserWindow({
+    width: W, height: H, x: wa.x + wa.width - W - 12, y: wa.y + wa.height - H - 12,
+    frame: false, transparent: true, resizable: false, movable: true, minimizable: false, maximizable: false,
+    alwaysOnTop: true, skipTaskbar: true, focusable: false, hasShadow: false, show: false,
+    webPreferences: { preload: path.join(__dirname, 'bubble-preload.cjs'), contextIsolation: true, nodeIntegration: false, backgroundThrottling: false },
+  });
+  bubbleWin.setAlwaysOnTop(true, 'screen-saver');
+  bubbleWin.setVisibleOnAllWorkspaces(true);
+  bubbleWin.setIgnoreMouseEvents(true, { forward: true });
+  bubbleWin.loadFile(path.join(__dirname, 'bubble.html'));
+  bubbleWin.on('closed', () => { bubbleWin = null; });
+  return bubbleWin;
+}
+ipcMain.handle('bubble:show', async () => {
+  const b = ensureBubble();
+  if (b.webContents.isLoading()) await new Promise((r) => b.webContents.once('did-finish-load', r));
+  b.webContents.send('state', { state: 'listening', text: '' });
+  b.showInactive();
+  return true;
+});
+ipcMain.on('bubble:state', (_e, s) => { if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.webContents.send('state', s); });
+ipcMain.on('bubble:level', (_e, l) => { if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.webContents.send('level', l); });
+ipcMain.handle('bubble:hide', () => { if (bubbleWin && !bubbleWin.isDestroyed()) bubbleWin.hide(); return true; });
+ipcMain.on('bubble:close', () => { bubbleWin?.hide(); win?.webContents.send('bubble', { kind: 'closed' }); });
+ipcMain.on('bubble:expand', () => { bubbleWin?.hide(); showWin(); win?.webContents.send('bubble', { kind: 'expand' }); });
+ipcMain.on('bubble:move', (_e, dx, dy) => { if (!bubbleWin) return; const [x, y] = bubbleWin.getPosition(); bubbleWin.setPosition(Math.round(x + dx), Math.round(y + dy)); });
+ipcMain.on('bubble:mouse', (_e, ignore) => { bubbleWin?.setIgnoreMouseEvents(!!ignore, { forward: true }); });
+// ¿La ventana principal está al frente? (si no, Aries usa la carita chiquita)
+ipcMain.handle('window:focused', () => !!win && win.isVisible() && !win.isMinimized() && win.isFocused());

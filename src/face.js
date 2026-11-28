@@ -17,7 +17,12 @@ const request = (kind) => requestors.forEach((fn) => fn(kind));
 let mini = false; // carita chiquita nativa (sobre otras apps en la tableta)
 export const faceOpen = () => !!root || mini;
 export const faceMini = () => mini;
-const bubble = (state, text) => AriesNative?.bubbleState(text === undefined ? { state } : { state, text }).catch(() => {});
+// La carita chiquita la dibuja la tableta (Android) o una ventana flotante del PC
+const bubble = (state, text) => {
+  const msg = text === undefined ? { state } : { state, text };
+  if (AriesNative) AriesNative.bubbleState(msg).catch(() => {});
+  else window.native?.bubbleState?.(msg);
+};
 
 const STATUS = {
   sleep: 'Di “Aries” para hablarme',
@@ -149,7 +154,7 @@ export function faceEvent(type, data = {}) {
 
 function miniEvent(type, data) {
   switch (type) {
-    case 'listening': if (st !== 'listening') setState('listening'); break;
+    case 'listening': if (st !== 'listening') setState('listening'); window.native?.bubbleLevel?.(data.level || 0); break;
     case 'transcribing': setState('transcribing'); break;
     case 'heard': st = 'thinking'; bubble('thinking', data.text ? `“${data.text}”` : ''); break;
     case 'thinking': if (st !== 'thinking') { st = 'thinking'; bubble('thinking'); } break;
@@ -165,7 +170,9 @@ function miniEvent(type, data) {
 }
 
 // La carita chiquita avisa si la cerraste (×) o la tocaste para abrir la app
-AriesNative?.addListener('bubble', (d) => { if (mini && (d.kind === 'closed' || d.kind === 'expand')) closeFace(); });
+const onBubbleEvent = (d) => { if (mini && (d.kind === 'closed' || d.kind === 'expand')) closeFace(); };
+AriesNative?.addListener('bubble', onBubbleEvent);
+window.native?.onBubble?.(onBubbleEvent);
 
 // Si se apaga la pantalla o la app pasa al fondo DE VERDAD (más de 3 s), la conversación termina y se suelta el micrófono.
 // Al prender la pantalla sobre el bloqueo, Android esconde la app un instante: eso no debe cerrar la carita.

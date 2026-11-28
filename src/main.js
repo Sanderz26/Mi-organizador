@@ -96,7 +96,16 @@ function openMore() {
 }
 
 /** Al decir "Aries": trae la app al frente, abre el asistente y empieza a escuchar */
-export function onAries(o = {}) {
+export async function onAries(o = {}) {
+  // PC: si estás en otra app (la ventana no está al frente), carita chiquita en la esquina
+  if (!o.bubble && window.native?.windowFocused && !(await window.native.windowFocused().catch(() => true))) {
+    sound('start');
+    await window.native.bubbleShow().catch(() => {});
+    openFace({ mini: true, onClose: () => { resumeWake(); window.native.bubbleHide().catch(() => {}); } });
+    requestVoiceStart();
+    if (parseHash().route === 'asistente') render(); else go('asistente');
+    return;
+  }
   // Tableta en otra app: carita chiquita en una esquina; la conversación sigue aquí por detrás
   if (o.bubble) {
     setAudioSink({ play: (b64) => AriesNative.playAudio({ b64 }), stop: () => AriesNative.stopAudio().catch(() => {}) });

@@ -78,7 +78,8 @@ async function ensureModel() {
 
 async function startMic() {
   if (stream) return;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } }); }
+  // Sin supresión de ruido (se "come" palabras cortas como "Aries") y con ganancia automática (para hablar de lejos)
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: false, autoGainControl: true, channelCount: 1 } }); }
   catch { throw new Error('No hay permiso para usar el micrófono.'); }
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   try { await ctx.resume(); } catch { /* */ }
@@ -101,11 +102,35 @@ async function startMic() {
   });
   const src = ctx.createMediaStreamSource(stream);
   proc = ctx.createScriptProcessor(4096, 1, 1);
-  proc.onaudioprocess = (e) => { try { rec.acceptWaveform(e.inputBuffer); } catch { /* */ } };
+  proc.onaudioprocess = (e) => { lastAudio = Date.now(); try { rec.acceptWaveform(e.inputBuffer); } catch { /* */ } };
+  lastAudio = Date.now();
+  // Si Windows corta el micrófono (suspensión, cambio de audífonos…), se vuelve a abrir solo
+  stream.getAudioTracks().forEach((t) => { t.onended = () => restartMic('el micrófono se desconectó'); });
   src.connect(proc);
   proc.connect(ctx.destination);
   set({ state: 'listening' });
 }
+
+let lastAudio = 0, held = false, heldAt = 0, restarting = false;
+async function restartMic(why) {
+  if (restarting || !wantRunning || held || AriesNative) return;
+  restarting = true;
+  try { await stopMic('loading'); await new Promise((r) => setTimeout(r, 400)); if (wantRunning && !held) await startMic(); }
+  catch (e) { set({ state: 'error', message: e.message }); }
+  finally { restarting = false; }
+}
+
+// Vigilante (PC): revisa cada 8 s que Aries siga escuchando de verdad
+setInterval(() => {
+  if (AriesNative || !wantRunning || !model || restarting) return;
+  if (held) { if (Date.now() - heldAt > 120000) { held = false; resumeWake(); } return; } // una pausa olvidada
+  if (isAndroid && document.visibilityState !== 'visible') return;
+  if (!stream) { startMic().catch((e) => set({ state: 'error', message: e.message })); return; }
+  if (ctx?.state === 'suspended') ctx.resume().catch(() => {});
+  const dead = stream.getAudioTracks().every((t) => t.readyState === 'ended') || Date.now() - lastAudio > 6000;
+  if (dead) restartMic('sin audio');
+}, 8000);
+navigator.mediaDevices?.addEventListener?.('devicechange', () => { if (stream && !held) setTimeout(() => restartMic('cambio de micrófono'), 800); });
 
 function stopMic(next = 'paused') {
   try { proc?.disconnect(); } catch { /* */ }
@@ -157,12 +182,13 @@ export async function pauseWake({ fresh = false } = {}) {
     if (!fresh) await new Promise((r) => setTimeout(r, 450));
     return;
   }
+  held = true; heldAt = Date.now();
   if (!stream) return;
   await stopMic('paused');
   // En Android el micrófono tarda un momento en quedar libre para el dictado del sistema
   if (isAndroid) await new Promise((r) => setTimeout(r, 600));
 }
-export function resumeWake() { if (AriesNative) { if (wakePrefs().on) AriesNative.release().catch(() => {}); return; } if (wantRunning && model && !stream && (!isAndroid || document.visibilityState === 'visible')) startMic().catch((e) => set({ state: 'error', message: e.message })); }
+export function resumeWake() { if (AriesNative) { if (wakePrefs().on) AriesNative.release().catch(() => {}); return; } held = false; if (wantRunning && model && !stream && (!isAndroid || document.visibilityState === 'visible')) startMic().catch((e) => set({ state: 'error', message: e.message })); }
 
 // Navegador: solo con la app en pantalla (en Android lo maneja el servicio nativo)
 document.addEventListener('visibilitychange', () => {

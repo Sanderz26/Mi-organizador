@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="utf-8"><title>Aries</title>
+<style>
+  html,body{margin:0;background:transparent;overflow:hidden;font-family:"Segoe UI",system-ui,sans-serif;user-select:none}
+  .wrap{position:fixed;right:6px;bottom:6px;display:flex;align-items:center;gap:8px}
+  .cap{max-width:250px;background:#fff;color:#13232b;border:1px solid #d9e4ea;border-radius:16px;padding:10px 14px;font-size:14px;line-height:1.35;box-shadow:0 6px 18px rgba(19,71,91,.18);display:-webkit-box;-webkit-line-clamp:4;-webkit-box-orient:vertical;overflow:hidden}
+  .cap:empty{display:none}
+  .face{position:relative;width:84px;height:84px;cursor:pointer;filter:drop-shadow(0 8px 14px rgba(19,71,91,.25))}
+  .x{position:absolute;top:-4px;left:-4px;width:22px;height:22px;border-radius:50%;background:rgba(19,35,43,.6);color:#fff;border:0;font-size:14px;line-height:22px;text-align:center;cursor:pointer;padding:0}
+  .x:hover{background:rgba(19,35,43,.85)}
+</style></head>
+<body>
+<div class="wrap" id="wrap">
+  <div class="cap" id="cap"></div>
+  <div class="face" id="face">
+    <svg viewBox="0 0 200 200" width="84" height="84">
+      <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e9f3f7"/><stop offset="1" stop-color="#cfe4ec"/></linearGradient></defs>
+      <rect id="ring" x="0" y="0" width="200" height="200" rx="64" fill="#1f6f8b" opacity="0"/>
+      <rect id="head" x="14" y="14" width="172" height="172" rx="54" fill="url(#g)"/>
+      <rect id="el" x="58" y="70" width="20" height="34" rx="10" fill="#13475b"/>
+      <rect id="er" x="122" y="70" width="20" height="34" rx="10" fill="#13475b"/>
+      <path id="smile" d="M84 134 q16 12 32 0" stroke="#13475b" stroke-width="5" stroke-linecap="round" fill="none"/>
+      <ellipse id="mouth" cx="100" cy="136" rx="17" ry="3" fill="#13475b" opacity="0"/>
+      <g id="dots" fill="#13475b" opacity="0"><circle cx="150" cy="44" r="4"/><circle cx="162" cy="34" r="5"/><circle cx="176" cy="22" r="6"/></g>
+    </svg>
+    <button class="x" id="x" title="Cerrar">×</button>
+  </div>
+</div>
+<script>
+  const B = window.bubble;
+  let st = 'listening', level = 0, ring = 0, look = 0, mouth = 0, blinkAt = 0;
+  const $ = (id) => document.getElementById(id);
+  B.onState(({ state, text }) => { if (state) st = state; if (text !== undefined && text !== null) $('cap').textContent = text; });
+  B.onLevel((l) => { level = Math.max(0, Math.min(1, l)); });
+  // Clics: solo sobre la carita y el texto (lo demás de la ventana deja pasar el mouse)
+  for (const el of [$('face'), $('cap')]) {
+    el.addEventListener('mouseenter', () => B.mouse(false));
+    el.addEventListener('mouseleave', () => B.mouse(true));
+  }
+  $('x').addEventListener('click', (e) => { e.stopPropagation(); B.close(); });
+  // Arrastrar para mover; tocar para abrir la app
+  let down = null, moved = false;
+  $('face').addEventListener('mousedown', (e) => { if (e.target.id === 'x') return; down = { x: e.screenX, y: e.screenY }; moved = false; });
+  window.addEventListener('mousemove', (e) => {
+    if (!down) return;
+    const dx = e.screenX - down.x, dy = e.screenY - down.y;
+    if (Math.abs(dx) + Math.abs(dy) > 6) moved = true;
+    if (moved) { B.move(dx, dy); down = { x: e.screenX, y: e.screenY }; }
+  });
+  window.addEventListener('mouseup', () => { if (down && !moved) B.expand(); down = null; });
+  function frame(t) {
+    const listening = st === 'listening', thinking = st === 'thinking' || st === 'transcribing', speaking = st === 'speaking';
+    const sp = speaking ? 0.15 + Math.abs(Math.sin(t / 1000 * 11)) * (0.55 + 0.45 * Math.sin(t / 1000 * 2.3)) * 0.75 : 0;
+    mouth += (sp - mouth) * 0.35; ring += ((listening ? 0.25 + level * 0.9 : 0) - ring) * 0.2; look += ((thinking ? 1 : 0) - look) * 0.08;
+    $('ring').setAttribute('opacity', (ring * 0.28).toFixed(3));
+    if (!blinkAt) blinkAt = t + 2500;
+    if (t >= blinkAt + 150) blinkAt = t + 3000 + Math.random() * 2500;
+    const eh = t >= blinkAt && t < blinkAt + 150 ? 4 : listening ? 38 : 34;
+    for (const [id, x0] of [['el', 58], ['er', 122]]) { const e = $(id); e.setAttribute('height', eh); e.setAttribute('y', 87 - eh / 2 - look * 6); e.setAttribute('x', x0 + look * 7); }
+    $('mouth').setAttribute('opacity', speaking ? 1 : 0); $('mouth').setAttribute('ry', 3 + mouth * 15); $('mouth').setAttribute('rx', 15 + mouth * 5);
+    $('smile').setAttribute('opacity', speaking ? 0 : 1);
+    $('dots').setAttribute('opacity', thinking ? (0.35 + 0.35 * Math.sin(t / 220)).toFixed(2) : 0);
+    requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+</script>
+</body></html>

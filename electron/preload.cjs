@@ -30,4 +30,10 @@ contextBridge.exposeInMainWorld('native', {
   searchDocs: (opts) => ipcRenderer.invoke('docs:search', opts),
   readDoc: (opts) => ipcRenderer.invoke('docs:read', opts),
   openDoc: (opts) => ipcRenderer.invoke('docs:open', opts),
+  windowFocused: () => ipcRenderer.invoke('window:focused'),
+  bubbleShow: () => ipcRenderer.invoke('bubble:show'),
+  bubbleHide: () => ipcRenderer.invoke('bubble:hide'),
+  bubbleState: (s) => ipcRenderer.send('bubble:state', s),
+  bubbleLevel: (l) => ipcRenderer.send('bubble:level', l),
+  onBubble: (cb) => ipcRenderer.on('bubble', (_e, d) => cb(d)),
 });
